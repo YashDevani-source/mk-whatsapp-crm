@@ -20,6 +20,7 @@ import type {
   ProviderCloseReason,
   ProviderEvent,
   ProviderKeyEntry,
+  ProviderSendResult,
   WaProviderName,
   WhatsAppProvider,
 } from '@crm/shared';
@@ -146,5 +147,10 @@ export class BaileysProvider implements WhatsAppProvider {
     const socket = this.socket;
     this.socket = undefined;
     socket?.end(undefined);
+  }
+
+  // MSG contract placeholder: sending through Baileys is built in MSG phase 5, after its tests.
+  async sendText(): Promise<ProviderSendResult> {
+    throw new Error('sendText is not built yet (MSG phase 5)');
   }
 }

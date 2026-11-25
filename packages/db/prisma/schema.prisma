@@ -23,6 +23,27 @@ enum MessageDirection {
   OUTBOUND
 }
 
+// MSG: text only (MSG Decision 2); inbound media is kept as UNSUPPORTED with its kind (MSG-05).
+enum MessageType {
+  TEXT
+  UNSUPPORTED
+}
+
+// MSG: outbound only, forward-only (MSG-20). Inbound messages have no status.
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum MessageFailureReason {
+  WA_NOT_CONNECTED
+  PROVIDER_ERROR
+  REPORTED_FAILED
+}
+
 model User {
   id           String     @id @default(uuid()) @db.Uuid
   email        String     @unique
@@ -31,6 +52,7 @@ model User {
   role         Role
   active       Boolean    @default(true)
   auditLogs    AuditLog[]
+  messagesSent Message[]
 
   @@map("users")
 }
@@ -40,28 +62,51 @@ model Contact {
   phone        String        @unique // E.164
   name         String?
   isTest       Boolean       @default(false) @map("is_test")
+  createdAt    DateTime      @default(now()) @map("created_at")
   conversation Conversation?
 
   @@map("contacts")
 }
 
 model Conversation {
-  id        String    @id @default(uuid()) @db.Uuid
-  contactId String    @unique @map("contact_id") @db.Uuid
-  contact   Contact   @relation(fields: [contactId], references: [id])
-  messages  Message[]
+  id            String    @id @default(uuid()) @db.Uuid
+  contactId     String    @unique @map("contact_id") @db.Uuid
+  contact       Contact   @relation(fields: [contactId], references: [id])
+  // MSG: the newest message's `at`; never moves backward (MSG-02).
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  messages      Message[]
 
+  @@index([lastMessageAt])
   @@map("conversations")
 }
 
 model Message {
-  id                String           @id @default(uuid()) @db.Uuid
-  conversationId    String           @map("conversation_id") @db.Uuid
-  conversation      Conversation     @relation(fields: [conversationId], references: [id])
+  id                String                @id @default(uuid()) @db.Uuid
+  conversationId    String                @map("conversation_id") @db.Uuid
+  conversation      Conversation          @relation(fields: [conversationId], references: [id])
   // Null until the provider returns an ID (outbound messages are saved as queued first).
-  providerMessageId String?          @unique @map("provider_message_id")
+  providerMessageId String?               @unique @map("provider_message_id")
   direction         MessageDirection
+  // MSG columns. `type` and `at` have defaults so FND-05's raw inserts stay valid (MSG Decision 18).
+  type              MessageType           @default(TEXT)
+  body              String?
+  unsupportedKind   String?               @map("unsupported_kind")
+  status            MessageStatus?
+  failureReason     MessageFailureReason? @map("failure_reason")
+  statusAt          DateTime?             @map("status_at")
+  // Null for inbound and for "Sent from phone" (MSG-06). Restrict: deleting a sender must never
+  // turn their messages into "Sent from phone" (users are deactivated, not deleted).
+  sentById          String?               @map("sent_by_id") @db.Uuid
+  sentBy            User?                 @relation(fields: [sentById], references: [id], onDelete: Restrict)
+  // Repeated sends with the same client id return the first message (MSG-13).
+  clientId          String?               @map("client_id") @db.Uuid
+  // The WhatsApp timestamp for messages from WhatsApp, the queue time for CRM sends (Decision 7).
+  at                DateTime              @default(now())
+  createdAt         DateTime              @default(now()) @map("created_at")
 
+  @@unique([conversationId, clientId])
+  @@index([conversationId, at])
   @@map("messages")
 }
 

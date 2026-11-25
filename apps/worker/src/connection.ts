@@ -165,9 +165,10 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
       await audit('wa.connected');
       if (event.number)
         await store.recordNumber(event.number).catch((e: unknown) => failure('record number', e));
-    } else {
+    } else if (event.type === 'close') {
       await onClose(event.reason);
     }
+    // `message` and `status` events are handled from MSG phase 2 (inbound) and phase 4 (status).
   }
 
   async function onClose(reason: ProviderCloseReason): Promise<void> {

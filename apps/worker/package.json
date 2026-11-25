@@ -12,6 +12,7 @@
     "@crm/db": "workspace:*",
     "@crm/shared": "workspace:*",
     "baileys": "7.0.0-rc14",
+    "bullmq": "6.7.5",
     "ioredis": "6.1.0"
   }
 }

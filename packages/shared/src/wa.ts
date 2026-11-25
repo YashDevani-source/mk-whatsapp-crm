@@ -1,6 +1,12 @@
 // WA contracts: connection state, QR, the worker↔api event and command shapes, Redis names, and
-// the provider interface (connection part only; MSG adds sending and receiving).
+// the provider interface. MSG adds the message events and `sendText` (docs/specs/003-messaging.md).
 import { z } from 'zod';
+import {
+  ConversationSummary,
+  MessageStatusUpdate,
+  MessageView,
+  type ReportedStatus,
+} from './messages.ts';
 
 export const WaConnectionState = z.enum([
   'connecting',
@@ -45,10 +51,13 @@ export const WaQr = z.object({
 export type WaQr = z.infer<typeof WaQr>;
 
 // The envelope on the events channel (worker to api, `waChannels(db).events`). The api picks the rooms from `event`;
-// the publisher never chooses them. MSG adds its events to this union.
+// the publisher never chooses them. MSG events go to `inbox:all` only (MSG-23).
 export const CrmEvent = z.discriminatedUnion('event', [
   z.object({ event: z.literal('wa.state'), data: WaState }),
   z.object({ event: z.literal('wa.qr'), data: WaQr }),
+  z.object({ event: z.literal('message.created'), data: MessageView }),
+  z.object({ event: z.literal('message.status'), data: MessageStatusUpdate }),
+  z.object({ event: z.literal('conversation.updated'), data: ConversationSummary }),
 ]);
 export type CrmEvent = z.infer<typeof CrmEvent>;
 
@@ -99,10 +108,30 @@ export function workerOfflineState(at: Date = new Date()): WaState {
 // a QR scan). `replaced` means another client took over the same credentials.
 export type ProviderCloseReason = 'network' | 'restart' | 'logged_out' | 'qr_timeout' | 'replaced';
 
+// MSG: one message as the provider reports it. `from` is E.164. Skipped messages (groups,
+// broadcasts, unknown sender, protocol messages; MSG-04, MSG-05) never become events.
+export interface ProviderInboundMessage {
+  providerMessageId: string;
+  from: string;
+  // Typed on the company phone itself, or (Fake only) an echo of a CRM send (MSG-06, MSG-17).
+  fromMe: boolean;
+  profileName?: string;
+  content: { kind: 'text'; text: string } | { kind: 'unsupported'; unsupportedKind: string };
+  at: Date;
+}
+
 export type ProviderEvent =
   | { type: 'qr'; qr: string }
   | { type: 'open'; number?: string }
-  | { type: 'close'; reason: ProviderCloseReason };
+  | { type: 'close'; reason: ProviderCloseReason }
+  | { type: 'message'; message: ProviderInboundMessage }
+  | { type: 'status'; providerMessageId: string; status: ReportedStatus; at: Date };
+
+// What `sendText` returns: WhatsApp's id for the message, and when it was accepted (MSG-14).
+export interface ProviderSendResult {
+  providerMessageId: string;
+  at: Date;
+}
 
 // One signal key write; `value: null` deletes the key.
 export interface ProviderKeyEntry {
@@ -128,4 +157,6 @@ export interface WhatsAppProvider {
   logout(): Promise<void>;
   // Closes the connection and keeps the session (shutdown, lost lock).
   close(): Promise<void>;
+  // MSG: sends a text to an E.164 number. Rejects when there is no open connection.
+  sendText(to: string, text: string): Promise<ProviderSendResult>;
 }

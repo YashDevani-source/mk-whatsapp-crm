@@ -7,7 +7,7 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25 end of session 7, WA closed)
+## Current state (updated 2026-11-25 session 8, MSG phase 1 of 5 done)
 - **Done:** Spec 0 (`BOOT`), Spec 1 (`FND`, 20 criteria) and Spec 2 (`WA`, `docs/specs/002-whatsapp.md`, 27 criteria) are built. History: `docs/history/2026-11-25-fnd-phase-*.md`, `…-wa-spec-draft.md`, `…-wa-phase-*.md`.
   - FND: env validation (`parseEnv`), `GET /health`, migration `init` and seed, login with signed `crm_sid` cookie and Redis sessions, `PERMISSION_MAP`/`can()`, the `access(level)` route guard, authenticated sockets with server-assigned rooms (`roomsFor`), logout/deactivation disconnects. FND Decisions 1 to 42.
   - WA worker (`apps/worker/src/`): `connection.ts` (`startWaWorker`: lock, states, backoff, commands, audit), `lock.ts` (`wa:lock`, Lua owner checks), `session-store.ts` + `crypto.ts` (AES-256-GCM, AAD per row), `providers/fake/fake.ts`, `providers/baileys/index.ts` (pinned `baileys` 7.0.0-rc14, connection only), `providers/index.ts` (`createProvider`). Migration `wa-session` (provider column, nullable number, `whatsapp_session_keys`).
@@ -15,11 +15,13 @@
   - WA web (`apps/web`): Vite + React 19, no router. Login page, Super Admin connection page with QR, home placeholder, banner with "Simulated" tag. Vite proxy for `/auth`, `/wa`, `/health`, `/socket.io` on port 5173.
   - Contracts: `packages/shared/src/wa.ts` (`WaState`, `WaQr`, `CrmEvent`, `WaCommand`, `WA_REDIS`, `EVENTS_CHANNEL`, `WhatsAppProvider`, `ProviderAuthStore`). `WorkerEnv` adds `WHATSAPP_PROVIDER` (default `fake`), `WA_LOCK_TTL_MS`, `WA_RECONNECT_BASE_MS`, `WA_RECONNECT_MAX_MS`.
 - **WA-27 passed** with the real test phone (WA Decision 42): QR scan, restart without QR, network drop and recovery, unlink from the phone and re-pair. "Log out WhatsApp" now needs a confirmation click (WA-24, Decision 41). The Phase 1 checkpoint's restart part is proven; its message part needs MSG.
-- **Tests:** `pnpm test` gives 173 passed and 5 `it.todo` (BOOT-09, BOOT-16, and the manual WA-23, WA-24, WA-27).
+- **Tests:** `pnpm test` gives 177 passed and 34 `it.todo`: BOOT-09, BOOT-16, the manual WA-23, WA-24, WA-27, and 29 MSG placeholders (MSG-26 has one in the api and one in the worker).
   - typecheck, lint, format:check and traceability pass.
   - Package tests run one package at a time (`--workspace-concurrency=1`): the packages share `crm_test`. Api tests use Redis db 1, worker tests Redis db 2, dev uses db 0. Pub/sub channels carry the db number (`waChannels(db)`, WA-28): Redis pub/sub is shared by all databases, and before this fix a test run logged out the live dev session (WA Decision 43).
   - Worker tests: in-process managers with short timings, plus spawned `main.ts` for the kill/SIGTERM lock tests (WA-03, WA-05).
-- **Next session:** the MSG spec (receive, send through the queue, forward-only status, dedupe; extends the provider interface with `sendText`, `onMessage`, `onStatus` in both adapters). Draft it only after the user's go-ahead.
+- **MSG approved and in build** (session 8): `docs/specs/003-messaging.md`, MSG-01 to MSG-28, text only. Open points settled as recommended (MSG Decision 17). History: `…-msg-spec-draft.md`, `…-msg-phase-1.md`.
+  - Phase 1 done: `bullmq` 6.7.5 (api, worker); contracts in `packages/shared/src/messages.ts` (`MessageView`, `ConversationSummary`, `MessageStatusUpdate`, `SendMessageRequest`, `OutboundMessageJob`, `QUEUES`, `NextStatus` type), `CrmEvent` gains `message.created`, `message.status`, `conversation.updated`; `ProviderEvent` gains `message` and `status`; `WhatsAppProvider.sendText` (placeholders in both adapters reject until phases 4 and 5); permissions `inbox.read`, `messages.send` (Super Admin, Manager); typed socket events in `apps/api/src/sockets.ts`; migration `msg-core` (applied to `crm_dev`). `messages.sent_by_id` is `ON DELETE RESTRICT`: tests must delete a user's messages before the user.
+- **Next:** MSG phase 2 (worker inbound on the Fake, MSG-01 to MSG-07), after the user's "next".
 - **Dev stack is stopped.** The test number stays linked: `WHATSAPP_PROVIDER=baileys pnpm dev` reconnects without a QR (the `BAILEYS` session is in `crm_dev`). Plain `pnpm dev` uses the Fake provider and does not touch the real session.
 - `crm_dev` holds a `FAKE` session row, a live `BAILEYS` session for the test number, and `wa.*` audit rows from the checks.
 - `pnpm test` is safe to run while the dev stack is connected (proved live, WA Decision 43). Tests must never use Redis db 0: not for keys, not for publishing, not for listening.
@@ -44,7 +46,7 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - `tests/bootstrap/`: tests for the BOOT criteria. `tests/foundation/`: repo-level FND tests (FND-19). `tests/whatsapp/`: WA-26 (Baileys pin and boundary).
 - FND tests live next to the code they test: `apps/api/src/*.test.ts`, `apps/worker/src/boot.test.ts`, `packages/db/src/*.test.ts`, `packages/shared/src/{env,permissions}.test.ts`.
 - Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps, { extraRouters })`, used by tests through supertest; `extraRouters` is test-only), `config.ts` (`AuthConfig`), `access.ts` (route guard, `authenticate`, `checkSession`), `session.ts` (cookie and Redis sessions), `sockets.ts` (Socket.io server, rooms, `SocketControl`), `auth.ts` (`/auth` router), `health.ts` and `redis.ts`. `apps/api/src/test-support.ts` and `test-global-setup.ts` are test-only. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. The api also has `wa.ts`, `events.ts` and `origin.ts` (WA). WA tests: `apps/worker/src/{wa,crypto}.test.ts` (with `test-support.ts`), `apps/api/src/wa.test.ts`, `apps/web/src/view.test.ts`.
-- `packages/db/prisma/` holds `schema.prisma` and `migrations/` (`20261125145958_init`, `20261125162103_wa-session`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. `packages/db/src/{migrate,seed}.ts` are the script entries. `src/test-support.ts` holds the crm_test helpers for the db tests (not exported). The db tests run files serially. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
+- `packages/db/prisma/` holds `schema.prisma` and `migrations/` (`20261125145958_init`, `20261125162103_wa-session`, `20261125180408_msg-core`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. `packages/db/src/{migrate,seed}.ts` are the script entries. `src/test-support.ts` holds the crm_test helpers for the db tests (not exported). The db tests run files serially. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
 - `docs/`: `plan/` (source documents), `specs/`, `data-flow/`, `history/`.
 
 ## Conventions in force
@@ -101,7 +103,7 @@ If a spec is wrong: update the spec, then the test, then the code. Write decisio
 ## Open items
 - Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
 - Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
-- Specs after WA (MSG, INB, …) are unwritten.
+- MSG is in build. Specs after MSG (INB, LEAD, …) are unwritten. INB must add the reply-lock check, the Employee scope and the assignee rooms together (MSG Proposed changes).
 - `baileys` is a release candidate (7.0.0-rc14); it passed WA-27. If it misbehaves later, the fallback is `legacy` 6.7.24 (WA Decision 6).
 - The USR deactivate route must call `sockets.endUser` so sockets drop at once (FND Decision 40).
 - FND-03's 2 s health timeout failed under parallel package tests; package tests now run one at a time (WA Decision 27). Watch it in CI.

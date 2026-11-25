@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   ProviderAuthStore,
   ProviderEvent,
+  ProviderSendResult,
   WaProviderName,
   WhatsAppProvider,
 } from '@crm/shared';
@@ -79,6 +80,11 @@ export class FakeProvider implements WhatsAppProvider {
   async close(): Promise<void> {
     this.closeCalls += 1;
     this.detach();
+  }
+
+  // MSG contract placeholder: sending is built in MSG phase 4 (MSG-14), after its tests.
+  async sendText(): Promise<ProviderSendResult> {
+    throw new Error('sendText is not built yet (MSG phase 4)');
   }
 
   // --- test and dev controls ---

@@ -1,4 +1,14 @@
-import { ROOMS, userRoom, type Room, type SessionUser, type WaQr, type WaState } from '@crm/shared';
+import {
+  ROOMS,
+  userRoom,
+  type ConversationSummary,
+  type MessageStatusUpdate,
+  type MessageView,
+  type Room,
+  type SessionUser,
+  type WaQr,
+  type WaState,
+} from '@crm/shared';
 import { Server, type DefaultEventsMap, type Socket } from 'socket.io';
 import {
   authenticate,
@@ -14,9 +24,13 @@ import { readWaQr, readWaState } from './wa.ts';
 export type SocketData = Authenticated;
 
 // Server-to-client room events. WA: `wa.state` to `global`, `wa.qr` to `admin` only (WA-15).
+// MSG: the message events to `inbox:all` only (MSG-23).
 export interface ServerEvents {
   'wa.state': (state: WaState) => void;
   'wa.qr': (qr: WaQr) => void;
+  'message.created': (message: MessageView) => void;
+  'message.status': (update: MessageStatusUpdate) => void;
+  'conversation.updated': (conversation: ConversationSummary) => void;
 }
 
 export type CrmServer = Server<DefaultEventsMap, ServerEvents, DefaultEventsMap, SocketData>;

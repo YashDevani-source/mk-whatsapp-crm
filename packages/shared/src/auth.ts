@@ -5,8 +5,15 @@ import { z } from 'zod';
 export const Role = z.enum(['SUPER_ADMIN', 'MANAGER', 'EMPLOYEE']);
 export type Role = z.infer<typeof Role>;
 
-// FND set (Decision 7). Later specs add permissions here.
-export const Permission = z.enum(['auth.session', 'users.manage', 'wa.manage']);
+// FND set (Decision 7), plus MSG's `inbox.read` and `messages.send` (Super Admin and Managers
+// until INB scopes them for Employees, MSG Decision 8). Later specs add permissions here.
+export const Permission = z.enum([
+  'auth.session',
+  'users.manage',
+  'wa.manage',
+  'inbox.read',
+  'messages.send',
+]);
 export type Permission = z.infer<typeof Permission>;
 
 // Every route declares exactly one of these (FND-13).
@@ -16,8 +23,8 @@ export type PermissionMap = Readonly<Record<Role, readonly Permission[]>>;
 
 // The single role→permission map (FND-12). Checked on the server only (route guard, socket rooms).
 export const PERMISSION_MAP: PermissionMap = {
-  SUPER_ADMIN: ['auth.session', 'users.manage', 'wa.manage'],
-  MANAGER: ['auth.session', 'users.manage'],
+  SUPER_ADMIN: ['auth.session', 'users.manage', 'wa.manage', 'inbox.read', 'messages.send'],
+  MANAGER: ['auth.session', 'users.manage', 'inbox.read', 'messages.send'],
   EMPLOYEE: ['auth.session'],
 };
 
