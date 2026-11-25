@@ -1,12 +1,13 @@
 import type { ApiError } from '@crm/shared';
 import express, { type ErrorRequestHandler, type Express, type Router } from 'express';
-import { createAccess, type Access, type AccessDeps } from './access.ts';
+import { createAccess, type Access } from './access.ts';
 import { authRouter } from './auth.ts';
 import { healthRouter } from './health.ts';
+import { messagesRouter, type MessagesDeps } from './messages.ts';
 import { originGuard } from './origin.ts';
 import { waRouter } from './wa.ts';
 
-export type AppDeps = AccessDeps;
+export type AppDeps = MessagesDeps;
 
 export interface AppOptions {
   // Test-only routers (FND-14). main.ts never passes any.
@@ -41,6 +42,7 @@ export function createApp(deps: AppDeps, options: AppOptions = {}): Express {
   app.use(healthRouter(deps, access));
   app.use('/auth', authRouter(deps, access));
   app.use('/wa', waRouter(deps, access));
+  app.use('/conversations', messagesRouter(deps, access));
   for (const build of options.extraRouters ?? []) app.use(build(access));
   app.use((_req, res) => {
     const body: ApiError = { error: 'not_found' };

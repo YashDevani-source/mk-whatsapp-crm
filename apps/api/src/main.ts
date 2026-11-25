@@ -4,6 +4,7 @@ import { createApp } from './app.ts';
 import { authConfigFrom } from './config.ts';
 import { startEventRelay } from './events.ts';
 import { packageName } from './index.ts';
+import { createOutboundQueue } from './queue.ts';
 import { createRedis } from './redis.ts';
 import { createSockets } from './sockets.ts';
 
@@ -22,7 +23,7 @@ const deps = {
   config: authConfigFrom(env),
 };
 const { io, control } = createSockets(deps);
-const app = createApp({ ...deps, sockets: control });
+const app = createApp({ ...deps, sockets: control, outbound: createOutboundQueue(deps.redis) });
 const server = app.listen(env.PORT, (error) => {
   if (error) {
     console.error(`${packageName}: cannot listen on port ${env.PORT} (${error.message})`);

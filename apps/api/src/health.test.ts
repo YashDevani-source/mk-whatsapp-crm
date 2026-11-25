@@ -25,7 +25,12 @@ function appWith(databaseUrl: string, redisUrl: string): ReturnType<typeof creat
     () => redis.disconnect(),
   );
   const deps = { db, redis, config: testConfig() };
-  return createApp({ ...deps, sockets: createSockets(deps).control });
+  // No message route is called here, so the queue is never used.
+  const outbound = {
+    add: () => Promise.reject(new Error('unused')),
+    close: () => Promise.resolve(),
+  };
+  return createApp({ ...deps, sockets: createSockets(deps).control, outbound });
 }
 
 afterAll(async () => {

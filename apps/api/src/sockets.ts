@@ -2,6 +2,7 @@ import {
   ROOMS,
   userRoom,
   type ConversationSummary,
+  type CrmEvent,
   type MessageStatusUpdate,
   type MessageView,
   type Room,
@@ -41,6 +42,8 @@ export interface SocketControl {
   endSession(userId: string, sessionId: string): Promise<void>;
   // Disconnects every socket of this user (deactivation).
   endUser(userId: string): Promise<void>;
+  // MSG: pushes an event the api produced itself (a CRM send) to the rooms `pushEvent` picks.
+  push(event: CrmEvent): void;
 }
 
 export interface Sockets {
@@ -54,6 +57,30 @@ export function roomsFor(user: SessionUser): Room[] {
   if (user.role === 'SUPER_ADMIN' || user.role === 'MANAGER') rooms.push(ROOMS.inboxAll);
   if (user.role === 'SUPER_ADMIN') rooms.push(ROOMS.admin);
   return rooms;
+}
+
+// The one place that picks the rooms for an event, for the worker relay and the api's own pushes
+// (MSG Decision 6). The publisher never chooses them. MSG events go to `inbox:all` only until INB
+// adds the assignee rooms (MSG-23).
+export function pushEvent(io: CrmServer, event: CrmEvent): void {
+  switch (event.event) {
+    case 'wa.state':
+      io.to(ROOMS.global).emit('wa.state', event.data);
+      break;
+    // The QR pairs a phone with the company number: Super Admin only.
+    case 'wa.qr':
+      io.to(ROOMS.admin).emit('wa.qr', event.data);
+      break;
+    case 'message.created':
+      io.to(ROOMS.inboxAll).emit('message.created', event.data);
+      break;
+    case 'message.status':
+      io.to(ROOMS.inboxAll).emit('message.status', event.data);
+      break;
+    case 'conversation.updated':
+      io.to(ROOMS.inboxAll).emit('conversation.updated', event.data);
+      break;
+  }
 }
 
 function logFailure(what: string, error: unknown): void {
@@ -82,6 +109,7 @@ export function createSockets(core: CoreDeps): Sockets {
       io.in(userRoom(userId)).disconnectSockets(true);
       return Promise.resolve();
     },
+    push: (event) => pushEvent(io, event),
   };
   const deps: AccessDeps = { ...core, sockets: control };
 

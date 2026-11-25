@@ -28,6 +28,9 @@ export type MessageFailureReason = z.infer<typeof MessageFailureReason>;
 // WhatsApp's limit for one text message.
 export const MAX_TEXT_LENGTH = 4096;
 
+// A `:id` route parameter. Anything that is not a UUID is answered like an unknown id (404).
+export const RouteId = z.uuid();
+
 // Body of `POST /conversations/:id/messages` (MSG-09, MSG-10, MSG-13).
 export const SendMessageRequest = z.strictObject({
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
@@ -100,3 +103,16 @@ export type OutboundMessageJob = z.infer<typeof OutboundMessageJob>;
 // MSG-20: the forward-only rule. Returns the new status, or null for "no change". The table is in
 // the spec under Contracts touched; the function is written in MSG phase 4, after its test.
 export type NextStatus = (current: MessageStatus, reported: ReportedStatus) => MessageStatus | null;
+
+// MSG Decision 11: 3 attempts, exponential backoff from 2 s. The api sets these on each job;
+// worker tests add their own jobs with a shorter backoff.
+export const OUTBOUND_ATTEMPTS = 3;
+export const OUTBOUND_BACKOFF_MS = 2_000;
+
+// `GET /conversations` (MSG-08): newest first.
+export const ConversationList = z.object({ conversations: z.array(ConversationSummary) });
+export type ConversationList = z.infer<typeof ConversationList>;
+
+// `GET /conversations/:id/messages` (MSG-08): the last 100, oldest first.
+export const MessageList = z.object({ messages: z.array(MessageView) });
+export type MessageList = z.infer<typeof MessageList>;

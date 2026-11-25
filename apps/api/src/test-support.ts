@@ -11,6 +11,7 @@ import type request from 'supertest';
 import { vi } from 'vitest';
 import { ACCESS, type AccessGuard } from './access.ts';
 import { createApp, type AppOptions } from './app.ts';
+import { createOutboundQueue, type OutboundQueue } from './queue.ts';
 import { SESSION_COOKIE, type AuthConfig } from './config.ts';
 import { startEventRelay } from './events.ts';
 import { createRedis } from './redis.ts';
@@ -44,12 +45,18 @@ export interface TestContext {
   io: CrmServer;
   // Resolves once the event relay is subscribed to `crm:events` (WA tests).
   relayReady: Promise<unknown>;
+  // MSG: the real queue on Redis db 1, unless the test passed its own.
+  outbound: OutboundQueue;
   close: () => Promise<void>;
 }
 
-export function testApp(config: Partial<AuthConfig> = {}, options: AppOptions = {}): TestContext {
+export function testApp(
+  config: Partial<AuthConfig> = {},
+  options: AppOptions & { outbound?: OutboundQueue } = {},
+): TestContext {
   const db = createDb(TEST_DATABASE_URL);
   const redis = createRedis(TEST_REDIS_URL);
+  const outbound = options.outbound ?? createOutboundQueue(redis);
   const deps = { db, redis, config: testConfig(config) };
   const subscriber = createRedis(TEST_REDIS_URL);
   const { io, control } = createSockets(deps);
@@ -58,12 +65,14 @@ export function testApp(config: Partial<AuthConfig> = {}, options: AppOptions = 
   const relayReady = startEventRelay(subscriber, io);
   relayReady.catch(() => undefined);
   return {
-    app: createApp({ ...deps, sockets: control }, options),
+    app: createApp({ ...deps, sockets: control, outbound }, options),
     db,
     redis,
     io,
     relayReady,
+    outbound,
     close: async () => {
+      await outbound.close();
       await db.$disconnect();
       redis.disconnect();
       subscriber.disconnect();

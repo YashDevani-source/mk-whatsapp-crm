@@ -2,7 +2,7 @@ Status: approved
 
 Drafted and approved 2026-11-25 (session 8). The user's "approved" accepted the draft with Decisions 5 to 16 and the recommended answer to each open point (Decision 17).
 
-Build: phases 1 and 2 of 5 done (contracts and migration; worker inbound, MSG-01 to MSG-07). The user asked for phases 2 to 5 in one go, with a commit per phase.
+Build: phases 1 to 3 of 5 done (contracts and migration; worker inbound, MSG-01 to MSG-07; api, MSG-08 to MSG-13, MSG-23, api MSG-26). The user asked for phases 2 to 5 in one go, with a commit per phase.
 
 # Spec 3: Messages (MSG)
 
@@ -222,6 +222,15 @@ Made during MSG phase 2 (2026-11-25), within the approved build:
 28. Worker layout: `apps/worker/src/messages.ts` (`createMessageHandler`, `publishEvents`, `isUniqueViolation`). `startWaWorker` creates the handler itself and calls it from its in-order event queue, behind the existing generation and lock check (WA Decision 21), so no new worker dependency. One transaction per message: contact upsert, name fill, conversation upsert, message insert, `lastMessageAt` forward-only update. A unique violation is "already stored" when the provider ID exists, otherwise (a contact or conversation created at the same moment) the transaction is retried once.
 29. Known limitation: if storing an inbound message fails (Postgres down), the worker logs `message store failed (<error name>)` and the message is not stored; WhatsApp does not deliver it again. Recorded for the DOC known-limitations list.
 30. The Fake gains `receive`, `skip` and `receiveOnOldConnection` (it keeps the last closed connection). Worker test contacts use the fictional `+1999` range, removed by `resetMessages` in `test-support.ts`. MSG-03 also has a direct test of two concurrent `onMessage` calls for a new number. Mutation check: removing the generation and lock guard for message events made both stale-connection MSG-07 tests fail.
+
+Made during MSG phase 3 (2026-11-26), within the approved build:
+
+31. If adding the job fails after the message is stored, the api sets it `failed` (`provider_error`), pushes `message.status`, logs `api: queueing a message failed (<error name>)` and answers 503 with the new `ApiError` code `queue_unavailable` (the edge case under MSG-09). `wa_not_connected` would be misleading there.
+32. List responses are wrapped: `ConversationList` (`{ conversations }`) and `MessageList` (`{ messages }`), new Zod contracts in `messages.ts`. `GET /conversations` returns at most 200 conversations; INB adds paging. Conversations with no `lastMessageAt` sort last. `RouteId` (a UUID) checks `:id`; anything else is a 404.
+33. Order in the send route: body (400), id and conversation (404), repeated `clientId` (200, checked before the WhatsApp state so a retried request still gets its message), WhatsApp state (503), then one transaction (insert, forward-only `lastMessageAt`), then the pushes (`message.created`, `conversation.updated`), then the job. The pushes come before the job, so a `message.status` can never reach a browser before its message. Two sends with the same `clientId` at the same moment: the unique index decides, and the loser returns the winner's message with 200.
+34. Api layout: `apps/api/src/messages.ts` (`messagesRouter`, mounted at `/conversations`), `queue.ts` (`createOutboundQueue`: BullMQ `Queue` on the api's own Redis client, job id = message id, 3 attempts, exponential backoff from `OUTBOUND_BACKOFF_MS` = 2 s, completed and failed jobs trimmed to the last 1000). `sockets.ts` gains `pushEvent(io, event)`, the one room choice used by both the relay and `SocketControl.push`. `AppDeps` gains `outbound`; `testApp` takes an optional `outbound` stub, and the FND health test passes an unused one.
+35. The api test files now run one at a time (`fileParallelism: false`), like the worker's. In parallel, the WA tests' `beforeEach` deleted `wa:state` on db 1 while an MSG test was sending, which gave a 503. The api tests' queue keys are on db 1 and are removed with `obliterate` before and after each MSG test.
+36. Mutation check: sending `message.created` to `global` made MSG-23 fail. One full `pnpm test` run failed FND-04 by timeout (its second `pnpm migrate` was killed after 59 s) while the machine's load average was 11; FND-04 alone passed in 5 s and the next full run passed. Same family as the open FND-03 timing item.
 
 ## Build phases
 
