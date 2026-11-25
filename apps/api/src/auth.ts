@@ -14,7 +14,7 @@ function fail(res: Response, status: 400 | 401 | 429, error: string): void {
 }
 
 // Mounted at /auth: POST /auth/login (public), POST /auth/logout and GET /auth/me (auth.session).
-export function authRouter({ db, redis, config }: AccessDeps, access: Access): Router {
+export function authRouter({ db, redis, config, sockets }: AccessDeps, access: Access): Router {
   // Verified against for unknown emails, so the response time does not reveal whether an email
   // exists (FND-08).
   const dummyHash = argon2.hash(randomBytes(16).toString('hex'));
@@ -54,6 +54,7 @@ export function authRouter({ db, redis, config }: AccessDeps, access: Access): R
   router.post('/logout', access('auth.session'), async (req, res) => {
     const { user, sessionId } = sessionOf(req);
     await destroySession(redis, sessionId, user.id);
+    await sockets.endSession(user.id, sessionId);
     res.clearCookie(SESSION_COOKIE, sessionCookieOptions(config));
     res.status(204).end();
   });

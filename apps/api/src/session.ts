@@ -68,3 +68,12 @@ export async function loadSession(redis: Redis, id: string): Promise<SessionReco
 export async function destroySession(redis: Redis, id: string, userId: string): Promise<void> {
   await redis.multi().del(sessionKey(id)).srem(userSessionsKey(userId), id).exec();
 }
+
+// Ends every session of a user (deactivation, FND-20).
+export async function destroyUserSessions(redis: Redis, userId: string): Promise<void> {
+  const ids = await redis.smembers(userSessionsKey(userId));
+  await redis
+    .multi()
+    .del(...ids.map(sessionKey), userSessionsKey(userId))
+    .exec();
+}

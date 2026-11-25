@@ -1,5 +1,7 @@
 // Test-only helpers for the api tests (BOOT-10: crm_test only). Never imported by app code.
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createDb, type Db } from '@crm/db';
 import type { Role, RouteAccess } from '@crm/shared';
 import argon2 from 'argon2';
@@ -11,6 +13,7 @@ import { ACCESS, type AccessGuard } from './access.ts';
 import { createApp, type AppOptions } from './app.ts';
 import { SESSION_COOKIE, type AuthConfig } from './config.ts';
 import { createRedis } from './redis.ts';
+import { createSockets, type CrmServer } from './sockets.ts';
 
 const PG_PORT = process.env['POSTGRES_PORT'] ?? '5433';
 const REDIS_PORT = process.env['REDIS_PORT'] ?? '6379';
@@ -34,21 +37,37 @@ export interface TestContext {
   app: Express;
   db: Db;
   redis: Redis;
+  // Not attached to a server until `listen` (socket tests).
+  io: CrmServer;
   close: () => Promise<void>;
 }
 
 export function testApp(config: Partial<AuthConfig> = {}, options: AppOptions = {}): TestContext {
   const db = createDb(TEST_DATABASE_URL);
   const redis = createRedis(TEST_REDIS_URL);
+  const deps = { db, redis, config: testConfig(config) };
+  const { io, control } = createSockets(deps);
   return {
-    app: createApp({ db, redis, config: testConfig(config) }, options),
+    app: createApp({ ...deps, sockets: control }, options),
     db,
     redis,
+    io,
     close: async () => {
       await db.$disconnect();
       redis.disconnect();
     },
   };
+}
+
+// Serves the app and its socket server on a free local port. `close` also closes the server.
+export async function listen(
+  ctx: TestContext,
+): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = createServer(ctx.app);
+  ctx.io.attach(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://127.0.0.1:${port}`, close: () => ctx.io.close() };
 }
 
 export interface TestUser {

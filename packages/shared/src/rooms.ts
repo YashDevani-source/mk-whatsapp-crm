@@ -6,3 +6,8 @@ export const ROOMS = {
 } as const;
 
 export type Room = (typeof ROOMS)[keyof typeof ROOMS] | `user:${string}`;
+
+// The personal room of one user (FND-17).
+export function userRoom(userId: string): Room {
+  return `user:${userId}`;
+}

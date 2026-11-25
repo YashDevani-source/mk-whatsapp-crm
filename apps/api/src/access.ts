@@ -3,7 +3,8 @@ import { can, type ApiError, type RouteAccess, type SessionUser } from '@crm/sha
 import type { Request, RequestHandler, Response } from 'express';
 import type { Redis } from 'ioredis';
 import { SESSION_COOKIE, type AuthConfig } from './config.ts';
-import { destroySession, loadSession, readCookie, verifyCookie } from './session.ts';
+import { destroyUserSessions, loadSession, readCookie, verifyCookie } from './session.ts';
+import type { SocketControl } from './sockets.ts';
 
 // Tag read by the FND-13 route walker: every route's first handler must carry it.
 export const ACCESS: unique symbol = Symbol('access');
@@ -11,10 +12,14 @@ export const ACCESS: unique symbol = Symbol('access');
 export type AccessGuard = RequestHandler & { readonly [ACCESS]: RouteAccess };
 export type Access = (level: RouteAccess) => AccessGuard;
 
-export interface AccessDeps {
+export interface CoreDeps {
   db: Db;
   redis: Redis;
   config: AuthConfig;
+}
+
+export interface AccessDeps extends CoreDeps {
+  sockets: SocketControl;
 }
 
 export interface Authenticated {
@@ -36,33 +41,49 @@ function deny(res: Response, status: 401 | 403): void {
   res.status(status).json(body);
 }
 
+// The active user behind a session id, or undefined. The user is read on every call, not cached,
+// so deactivation applies at once (FND-11), and the role comes from this row, not from the
+// session. An inactive or deleted user has all their sessions ended and sockets disconnected
+// (FND-20).
+export async function checkSession(
+  { db, redis, sockets }: AccessDeps,
+  sessionId: string,
+): Promise<Authenticated | undefined> {
+  const session = await loadSession(redis, sessionId);
+  if (session === undefined) return undefined;
+  const user = await db.user.findUnique({
+    where: { id: session.userId },
+    select: { id: true, name: true, role: true, active: true },
+  });
+  if (!user?.active) {
+    await destroyUserSessions(redis, session.userId);
+    await sockets.endUser(session.userId);
+    return undefined;
+  }
+  return { user: { id: user.id, name: user.name, role: user.role }, sessionId };
+}
+
+// The active user behind a `Cookie` header, for HTTP requests and the socket handshake.
+export async function authenticate(
+  deps: AccessDeps,
+  cookieHeader: string | undefined,
+): Promise<Authenticated | undefined> {
+  const id = verifyCookie(readCookie(cookieHeader, SESSION_COOKIE), deps.config.sessionSecret);
+  return id === undefined ? undefined : checkSession(deps, id);
+}
+
 // The route guard (FND-13, FND-14). `public` passes; otherwise a valid signed cookie, a live
 // Redis session and an active user are required (401), and the role must hold the permission (403).
-export function createAccess({ db, redis, config }: AccessDeps): Access {
+export function createAccess(deps: AccessDeps): Access {
   return (level) => {
     const guard: RequestHandler = async (req, res, next) => {
       if (level === 'public') return next();
 
-      const id = verifyCookie(readCookie(req.headers.cookie, SESSION_COOKIE), config.sessionSecret);
-      const session = id === undefined ? undefined : await loadSession(redis, id);
-      if (id === undefined || session === undefined) return deny(res, 401);
+      const session = await authenticate(deps, req.headers.cookie);
+      if (session === undefined) return deny(res, 401);
+      if (!can(session.user.role, level)) return deny(res, 403);
 
-      // Read on every request, not cached, so deactivation applies at once (FND-11). The role
-      // comes from this row, not from the session.
-      const user = await db.user.findUnique({
-        where: { id: session.userId },
-        select: { id: true, name: true, role: true, active: true },
-      });
-      if (!user?.active) {
-        await destroySession(redis, id, session.userId);
-        return deny(res, 401);
-      }
-      if (!can(user.role, level)) return deny(res, 403);
-
-      authenticated.set(req, {
-        user: { id: user.id, name: user.name, role: user.role },
-        sessionId: id,
-      });
+      authenticated.set(req, session);
       next();
     };
     return Object.assign(guard, { [ACCESS]: level });

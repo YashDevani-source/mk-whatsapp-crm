@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phases 1 (packages, contracts, placeholder tests), 2 (env validation, `GET /health`, `.env.example`), 3 (database migration, unique constraints, seed) and 4 (login, logout and `/auth/me` with Redis sessions, the login rate limit, the role→permission map and a route guard on every route) are done. There are still no product features and no UI; login works over HTTP only (`curl`). `pnpm dev` starts the api (`/health` and `/auth/*`) and placeholder web and worker processes.
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) and Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms) are built. There are still no product features and no UI; login works over HTTP only (`curl`), and a socket client must send the `crm_sid` cookie. `pnpm dev` starts the api (`/health`, `/auth/*` and Socket.io on the same port) and placeholder web and worker processes. Next is the WA spec (unwritten).
 
 ## What we did in session 1
 
@@ -51,6 +51,8 @@ curl -b jar localhost:4000/auth/me             # {"id":"…","name":"Seed Manage
 curl -b jar -X POST localhost:4000/auth/logout # 204; the cookie now gets 401
 ```
 
+Socket.io runs on the same port. A connection without a valid `crm_sid` cookie is refused (`unauthenticated`). The server puts each socket in its rooms (`user:<id>` and `global` for everyone, `inbox:all` for Managers and the Super Admin, `admin` for the Super Admin); clients cannot join rooms. Logging out disconnects that session's sockets.
+
 Five failed logins for one email within 15 minutes block that email with 429 (`LOGIN_MAX_ATTEMPTS`, `LOGIN_WINDOW_SECONDS`).
 
 | Role        | Email                 |
@@ -84,7 +86,7 @@ Stop the services with `docker compose down` (add `-v` to delete the database vo
 
 ```
 apps/web         React app (placeholder)
-apps/api         Express API: /health, /auth (Socket.io arrives in FND phase 5)
+apps/api         Express API: /health, /auth, and Socket.io with server-assigned rooms
 apps/worker      WhatsApp worker; the only place Baileys may be imported (placeholder)
 packages/shared  Zod schemas, types, events, provider interface, permissions
 packages/db      Prisma schema, migrations, client, migrate and seed scripts
@@ -101,17 +103,17 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 
 ## Docs
 
-| Where                                       | What                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                                   |
-| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md` built, `001-foundation.md` approved, in progress) |
-| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (planned)                                           |
-| [docs/history/](docs/history/README.md)     | Session notes                                                                                |
-| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                                        |
+| Where                                       | What                                                                         |
+| ------------------------------------------- | ---------------------------------------------------------------------------- |
+| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                   |
+| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md` built, `001-foundation.md` built) |
+| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (planned)                           |
+| [docs/history/](docs/history/README.md)     | Session notes                                                                |
+| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                        |
 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- FND is in progress: phases 1 to 4 of 5 done. Next is phase 5, authenticated sockets and server-assigned rooms.
-- No CORS yet: the api is only called with `curl` until the login page (WA spec).
+- Specs after FND (WA, MSG, INB, …) are not written yet. No socket room events exist yet.
+- No CORS and no socket origin check yet: the api is only called with `curl` and test clients until the login page (WA spec). See FND Decision 41.
 - See [docs/history/](docs/history/README.md) for the full open-items list.
