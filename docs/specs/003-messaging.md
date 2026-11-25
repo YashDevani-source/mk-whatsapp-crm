@@ -2,7 +2,7 @@ Status: approved
 
 Drafted and approved 2026-11-25 (session 8). The user's "approved" accepted the draft with Decisions 5 to 16 and the recommended answer to each open point (Decision 17).
 
-Build: phases 1 to 3 of 5 done (contracts and migration; worker inbound, MSG-01 to MSG-07; api, MSG-08 to MSG-13, MSG-23, api MSG-26). The user asked for phases 2 to 5 in one go, with a commit per phase.
+Build: phases 1 to 4 of 5 done (contracts and migration; worker inbound, MSG-01 to MSG-07; api, MSG-08 to MSG-13, MSG-23; worker sending and status, MSG-14 to MSG-22, MSG-26). The user asked for phases 2 to 5 in one go, with a commit per phase.
 
 # Spec 3: Messages (MSG)
 
@@ -231,6 +231,17 @@ Made during MSG phase 3 (2026-11-26), within the approved build:
 34. Api layout: `apps/api/src/messages.ts` (`messagesRouter`, mounted at `/conversations`), `queue.ts` (`createOutboundQueue`: BullMQ `Queue` on the api's own Redis client, job id = message id, 3 attempts, exponential backoff from `OUTBOUND_BACKOFF_MS` = 2 s, completed and failed jobs trimmed to the last 1000). `sockets.ts` gains `pushEvent(io, event)`, the one room choice used by both the relay and `SocketControl.push`. `AppDeps` gains `outbound`; `testApp` takes an optional `outbound` stub, and the FND health test passes an unused one.
 35. The api test files now run one at a time (`fileParallelism: false`), like the worker's. In parallel, the WA tests' `beforeEach` deleted `wa:state` on db 1 while an MSG test was sending, which gave a 503. The api tests' queue keys are on db 1 and are removed with `obliterate` before and after each MSG test.
 36. Mutation check: sending `message.created` to `global` made MSG-23 fail. One full `pnpm test` run failed FND-04 by timeout (its second `pnpm migrate` was killed after 59 s) while the machine's load average was 11; FND-04 alone passed in 5 s and the next full run passed. Same family as the open FND-03 timing item.
+
+Made during MSG phase 4 (2026-11-26), within the approved build:
+
+37. Each send runs inside the connection manager's in-order queue (`exclusive`), the same queue as provider events. An echo of the send (MSG-17) or a receipt that WhatsApp reports while `sendText` is still running is therefore handled after the provider ID has been saved. This replaces any "pending sends" bookkeeping and also covers the edge case of a receipt before the ID is saved. `ready` is true only for the connected lock holder; otherwise the attempt fails with `WaNotConnected`.
+38. The BullMQ processor (`apps/worker/src/send.ts`, `createSender`) starts on the first `open` after the lock is taken, not on the lock alone, so jobs waiting through a takeover do not spend attempts while WhatsApp is still connecting. It stops (and waits for its active job) before the provider closes, on lock loss and on shutdown. Its blocking Redis connection is `redis.duplicate({ maxRetriesPerRequest: null })`, so it stays on the worker's database.
+39. The last attempt is detected in the processor (`attemptsMade + 1 >= attempts`): it marks the message `failed` (`wa_not_connected` for `WaNotConnected`, else `provider_error`) and publishes `message.status` before rethrowing. Earlier attempts publish nothing. Each failure logs `@crm/worker: sending a message failed (<error name>)`.
+40. Both the "send" save and the status update are conditional updates (`where status = <expected>`), so a write never overrides a status that changed in between. A status report for an unknown provider ID logs `status for an unknown message ignored` (no ID).
+41. `nextStatus` ranks `queued < sent < delivered < read`; `read` and `failed` are final; `failed` after `delivered` is ignored. Two tests: the spec's 20-cell table, and "no two reports in a row ever move a status backward".
+42. The Fake gains `sendText` (rejects when not connected), `failSends`, `delaySends`, `echoNextSend` (emits the from-me echo, then holds the send for 100 ms, as Baileys does when it echoes its own sends), `report`, and the counters `sends`, `sendCalls`, `maxActiveSends`. `createProvider('fake')` (the dev Fake) reports nothing after a send (MSG-22).
+43. MSG-18's takeover test kills a spawned worker that holds the lock and is connected through a stored Fake session, then queues a job; the in-process standby takes over and sends it once. A job that is active at the moment of the kill is returned by BullMQ's stalled-job check (default lock 30 s); that path is BullMQ's and is not tested here.
+44. Mutation checks: removing the "still queued" guard failed MSG-15; bypassing the in-order queue failed MSG-17 (after the Fake's echo hold was added; before it, the race went the safe way and the test passed). Raising BullMQ concurrency to 2 did not fail MSG-19, because the in-order queue alone also runs sends one at a time. `concurrency: 1` is kept as a second guard.
 
 ## Build phases
 

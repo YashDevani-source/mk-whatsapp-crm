@@ -1,13 +1,15 @@
 // The Fake provider: a simulated WhatsApp connection. Tests drive it directly (emitQr, scan, drop,
 // logoutFromPhone, expireQr, updateCreds, updateKey, failConnects; MSG: receive, skip,
-// receiveOnOldConnection). In `pnpm dev` it shows a simulated QR and pairs itself after
-// `autoPairMs`; the UI labels it "Simulated" (WA-25).
+// receiveOnOldConnection, failSends, delaySends, echoNextSend, report). In `pnpm dev` it shows a
+// simulated QR and pairs itself after `autoPairMs`; the UI labels it "Simulated" (WA-25). A dev
+// send returns a simulated id and nothing more: the Fake reports no delivered or read (MSG-22).
 import { randomUUID } from 'node:crypto';
 import type {
   ProviderAuthStore,
   ProviderEvent,
   ProviderSendResult,
   ProviderSkipReason,
+  ReportedStatus,
   WaProviderName,
   WhatsAppProvider,
 } from '@crm/shared';
@@ -76,6 +78,15 @@ export class FakeProvider implements WhatsAppProvider {
   private conn: FakeConnection | undefined;
   // The last closed connection, for MSG-07's stale-event tests.
   private previous: FakeConnection | undefined;
+  // MSG: every successful `sendText`, in order.
+  readonly sends: Array<{ to: string; text: string; providerMessageId: string }> = [];
+  sendCalls = 0;
+  // MSG-19: the most sends ever in progress at once.
+  maxActiveSends = 0;
+  private activeSends = 0;
+  private sendFailuresLeft = 0;
+  private sendDelayMs = 0;
+  private echoNext = false;
   private failuresLeft = 0;
   private autoPairTimer: NodeJS.Timeout | undefined;
   private readonly options: FakeOptions;
@@ -118,9 +129,34 @@ export class FakeProvider implements WhatsAppProvider {
     this.detach();
   }
 
-  // MSG contract placeholder: sending is built in MSG phase 4 (MSG-14), after its tests.
-  async sendText(): Promise<ProviderSendResult> {
-    throw new Error('sendText is not built yet (MSG phase 4)');
+  // MSG-14. Rejects with no open connection, like a real socket.
+  async sendText(to: string, text: string): Promise<ProviderSendResult> {
+    this.sendCalls += 1;
+    const conn = this.require();
+    this.activeSends += 1;
+    this.maxActiveSends = Math.max(this.maxActiveSends, this.activeSends);
+    try {
+      if (this.sendDelayMs > 0) await new Promise((r) => setTimeout(r, this.sendDelayMs));
+    } finally {
+      this.activeSends -= 1;
+    }
+    if (this.sendFailuresLeft > 0) {
+      this.sendFailuresLeft -= 1;
+      throw new Error('fake send failure');
+    }
+    const providerMessageId = `FAKE-OUT-${randomUUID()}`;
+    const at = new Date();
+    this.sends.push({ to, text, providerMessageId });
+    if (this.echoNext) {
+      // MSG-17: the worst case, an echo of the send reported well before the send call returns.
+      this.echoNext = false;
+      this.emit(
+        conn,
+        inboundEvent({ from: to, text, id: providerMessageId, at, fromMe: true }).event,
+      );
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return { providerMessageId, at };
   }
 
   // --- test and dev controls ---
@@ -159,6 +195,26 @@ export class FakeProvider implements WhatsAppProvider {
     const { id, event } = inboundEvent(input);
     this.emit(this.require(), event);
     return id;
+  }
+
+  // MSG-16: the next `count` sends fail.
+  failSends(count: number): void {
+    this.sendFailuresLeft = count;
+  }
+
+  // MSG-19: every send takes this long.
+  delaySends(ms: number): void {
+    this.sendDelayMs = ms;
+  }
+
+  // MSG-17: the next send is also reported back as a from-me message.
+  echoNextSend(): void {
+    this.echoNext = true;
+  }
+
+  // MSG-21: WhatsApp reports a status for a sent message.
+  report(providerMessageId: string, status: ReportedStatus, at = new Date()): void {
+    this.emit(this.require(), { type: 'status', providerMessageId, status, at });
   }
 
   // MSG-04: the adapter dropped a message and reports only why.

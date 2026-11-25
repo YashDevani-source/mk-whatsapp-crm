@@ -22,6 +22,7 @@ import { reconnectDelay } from './backoff.ts';
 import { packageName } from './index.ts';
 import { createLock } from './lock.ts';
 import { createMessageHandler } from './messages.ts';
+import { createSender } from './send.ts';
 import { SessionUnreadable, type SessionStore } from './session-store.ts';
 
 export interface WorkerConfig {
@@ -85,6 +86,20 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
   const enqueue = (task: () => Promise<void>): void => {
     queue = queue.then(task).catch((error: unknown) => failure('connection task', error));
   };
+
+  // MSG Decision 37: a send runs in the same queue, so events WhatsApp reports during the send are
+  // handled after it. `ready` is false unless this worker holds the lock and is connected.
+  const exclusive = <T>(task: (ready: boolean) => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      enqueue(async () => {
+        try {
+          resolve(await task(holding && current?.state === 'connected'));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  const sender = createSender({ db, redis, channels, provider, exclusive });
 
   const publish = (event: CrmEvent): string => JSON.stringify(event);
 
@@ -165,6 +180,8 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
     } else if (event.type === 'open') {
       attempt = 0;
       await setState('connected');
+      // MSG-18: send jobs are taken from the first connection after the lock is acquired.
+      sender.start();
       await audit('wa.connected');
       if (event.number)
         await store.recordNumber(event.number).catch((e: unknown) => failure('record number', e));
@@ -174,8 +191,9 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
       await messages.onMessage(event.message).catch((e: unknown) => failure('message store', e));
     } else if (event.type === 'skipped') {
       messages.onSkipped(event.reason);
+    } else {
+      await messages.onStatus(event).catch((e: unknown) => failure('status update', e));
     }
-    // `status` events are handled from MSG phase 4.
   }
 
   async function onClose(reason: ProviderCloseReason): Promise<void> {
@@ -232,6 +250,8 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
     heartbeatTimer = clearTimer(heartbeatTimer);
     reconnectTimer = clearTimer(reconnectTimer);
     log(`${packageName}: lost the WhatsApp lock, closing the connection`);
+    // MSG-18: stop taking send jobs before WhatsApp closes.
+    await sender.stop();
     await provider.close().catch((e: unknown) => failure('provider close', e));
     current = undefined;
     if (!stopped) lockTimer = setTimeout(() => void tryAcquire(), retryMs);
@@ -290,6 +310,7 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
       heartbeatTimer = clearTimer(heartbeatTimer);
       reconnectTimer = clearTimer(reconnectTimer);
       await subscribed;
+      await sender.stop();
       await queue;
       if (holding) {
         holding = false;

@@ -1,21 +1,37 @@
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import type { Db } from '@crm/db';
-import { WA_REDIS, type ConversationSummary, type MessageView } from '@crm/shared';
+import {
+  QUEUES,
+  WA_REDIS,
+  type ConversationSummary,
+  type MessageStatusUpdate,
+  type MessageView,
+  type OutboundMessageJob,
+} from '@crm/shared';
+import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMessageHandler } from './messages.ts';
+import { createProvider } from './providers/index.ts';
+import type { FakeProvider } from './providers/fake/fake.ts';
 import { createRedis } from './redis.ts';
+import { createSessionStore } from './session-store.ts';
 import {
   TEST_CHANNELS,
+  TEST_KEY,
   TEST_REDIS_URL,
+  killAll,
   lastState,
   pause,
   recordEvents,
   resetMessages,
   resetWa,
+  spawnWorker,
   startTestWorker,
   testDb,
   waitFor,
+  workerEnv,
+  type Spawned,
   type TestWorker,
 } from './test-support.ts';
 
@@ -24,11 +40,15 @@ import {
 let db: Db;
 let redis: Redis;
 let rec: Awaited<ReturnType<typeof recordEvents>>;
+let queue: Queue<OutboundMessageJob>;
 const workers: TestWorker[] = [];
+const spawned: Spawned[] = [];
 
 beforeAll(() => {
   db = testDb();
   redis = createRedis(TEST_REDIS_URL);
+  // The api's side of the queue, on the worker tests' Redis db 2. `resetWa` flushes db 2, jobs too.
+  queue = new Queue<OutboundMessageJob>(QUEUES.outboundMessage, { connection: redis });
 });
 
 beforeEach(async () => {
@@ -39,12 +59,14 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const w of workers.splice(0)) await w.stop();
+  await killAll(spawned.splice(0));
   rec.close();
 });
 
 afterAll(async () => {
   await resetWa(db, redis);
   await resetMessages(db);
+  await queue.close();
   await db.$disconnect();
   redis.disconnect();
 });
@@ -56,8 +78,8 @@ const created = (): MessageView[] =>
 const updated = (): ConversationSummary[] =>
   rec.events.flatMap((r) => (r.event.event === 'conversation.updated' ? [r.event.data] : []));
 
-async function connected(): Promise<TestWorker> {
-  const w = startTestWorker(db);
+async function connected(fake?: FakeProvider): Promise<TestWorker> {
+  const w = startTestWorker(db, fake ? { fake } : {});
   workers.push(w);
   await waitFor(() => w.fake.connected);
   w.fake.emitQr();
@@ -267,24 +289,281 @@ describe('inbound messages', () => {
   });
 });
 
-describe('sending', () => {
-  it.todo('MSG-14 the send job sends through the provider, saves the provider id and sets sent');
-  it.todo('MSG-15 a job whose message is not queued sends nothing; the same job twice sends once');
-  it.todo('MSG-16 a failing send is retried 3 times, then marked failed with a reason');
-  it.todo(
-    'MSG-17 a CRM-sent message is stored once even when the provider reports it back as from-me',
+const statuses = (): MessageStatusUpdate[] =>
+  rec.events.flatMap((r) => (r.event.event === 'message.status' ? [r.event.data] : []));
+
+// An outbound message stored as the api stores it (MSG-09), and its job with a short backoff.
+async function queueMessage(
+  text: string,
+  options: { to?: string; status?: 'QUEUED' | 'SENT'; addJob?: boolean } = {},
+): Promise<{ id: string; to: string }> {
+  const to = options.to ?? phone();
+  const contact = await db.contact.upsert({
+    where: { phone: to },
+    create: { phone: to },
+    update: {},
+  });
+  const conversation = await db.conversation.upsert({
+    where: { contactId: contact.id },
+    create: { contactId: contact.id },
+    update: {},
+  });
+  const message = await db.message.create({
+    data: {
+      conversationId: conversation.id,
+      direction: 'OUTBOUND',
+      type: 'TEXT',
+      body: text,
+      status: options.status ?? 'QUEUED',
+    },
+  });
+  if (options.addJob !== false) await addJob(message.id);
+  return { id: message.id, to };
+}
+
+async function addJob(messageId: string, jobId = messageId): Promise<void> {
+  await queue.add(
+    QUEUES.outboundMessage,
+    { v: 1, messageId },
+    { jobId, attempts: 3, backoff: { type: 'exponential', delay: 50 } },
   );
-  it.todo('MSG-18 only the lock holder takes send jobs; the next holder sends a stalled job once');
-  it.todo('MSG-19 send jobs run one at a time, in queue order');
+}
+
+async function statusOf(id: string): Promise<string | null> {
+  return (await db.message.findUniqueOrThrow({ where: { id } })).status;
+}
+
+async function statusIs(id: string, status: string, ms = 5_000): Promise<void> {
+  await waitFor(async () => (await statusOf(id)) === status, ms);
+}
+
+async function jobDone(jobId: string): Promise<void> {
+  await waitFor(async () => ['completed', 'failed'].includes(await queue.getJobState(jobId)));
+}
+
+describe('sending', () => {
+  it('MSG-14 the send job sends through the provider, saves the provider id and sets sent', async () => {
+    const w = await connected();
+    const { id, to } = await queueMessage('Hello from the CRM');
+    await statusIs(id, 'SENT');
+    expect(w.fake.sends).toHaveLength(1);
+    const [sent] = w.fake.sends;
+    expect(sent).toMatchObject({ to, text: 'Hello from the CRM' });
+    const row = await db.message.findUniqueOrThrow({ where: { id } });
+    expect(row.providerMessageId).toBe(sent?.providerMessageId);
+    expect(row.statusAt).not.toBeNull();
+    await waitFor(() => statuses().length === 1);
+    expect(statuses()[0]).toMatchObject({ messageId: id, status: 'sent', failureReason: null });
+  });
+
+  it('MSG-15 a job whose message is not queued sends nothing; the same job twice sends once', async () => {
+    const w = await connected();
+    const already = await queueMessage('already sent', { status: 'SENT' });
+    await jobDone(already.id);
+    const missing = randomUUID();
+    await addJob(missing);
+    await jobDone(missing);
+    expect(w.fake.sendCalls).toBe(0);
+
+    const once = await queueMessage('once');
+    await statusIs(once.id, 'SENT');
+    await jobDone(once.id);
+    // The same job id again is not a new job; another job for the same message finds it sent.
+    await addJob(once.id);
+    await addJob(once.id, `${once.id}-again`);
+    await jobDone(`${once.id}-again`);
+    expect(w.fake.sendCalls).toBe(1);
+    expect(statuses()).toHaveLength(1);
+  });
+
+  it('MSG-16 a failing send is retried 3 times, then marked failed with provider_error', async () => {
+    const w = await connected();
+    w.fake.failSends(10);
+    const { id } = await queueMessage('will fail');
+    await statusIs(id, 'FAILED');
+    expect(w.fake.sendCalls).toBe(3);
+    expect((await db.message.findUniqueOrThrow({ where: { id } })).failureReason).toBe(
+      'PROVIDER_ERROR',
+    );
+    await waitFor(() => statuses().length === 1);
+    expect(statuses()).toEqual([
+      expect.objectContaining({ messageId: id, status: 'failed', failureReason: 'provider_error' }),
+    ]);
+  });
+
+  it('MSG-16 a send that fails once and then succeeds publishes only sent', async () => {
+    const w = await connected();
+    w.fake.failSends(1);
+    const { id } = await queueMessage('second time lucky');
+    await statusIs(id, 'SENT');
+    expect(w.fake.sendCalls).toBe(2);
+    await pause(100);
+    expect(statuses().map((s) => s.status)).toEqual(['sent']);
+  });
+
+  it('MSG-16 a send while WhatsApp is not connected ends failed with wa_not_connected', async () => {
+    const w = await connected();
+    w.fake.failConnects(1_000);
+    w.fake.drop();
+    await waitFor(() => lastState(rec)?.state === 'disconnected');
+    const { id } = await queueMessage('nobody home');
+    await statusIs(id, 'FAILED');
+    expect(w.fake.sendCalls).toBe(0);
+    expect((await db.message.findUniqueOrThrow({ where: { id } })).failureReason).toBe(
+      'WA_NOT_CONNECTED',
+    );
+    await waitFor(() => statuses().length === 1);
+    expect(statuses()[0]).toMatchObject({ status: 'failed', failureReason: 'wa_not_connected' });
+  });
+
+  it('MSG-17 a CRM-sent message is stored once even when the provider reports it back as from-me', async () => {
+    const w = await connected();
+    w.fake.echoNextSend();
+    const { id, to } = await queueMessage('echo me');
+    await statusIs(id, 'SENT');
+    const providerMessageId = w.fake.sends[0]?.providerMessageId;
+    expect(providerMessageId).toBeDefined();
+    await pause(200);
+    expect(await db.message.count({ where: { providerMessageId } })).toBe(1);
+    expect(await db.message.count({ where: { conversation: { contact: { phone: to } } } })).toBe(1);
+    expect(created()).toHaveLength(0);
+  });
+
+  it('MSG-18 a standby worker takes no send jobs', async () => {
+    const holder = await connected();
+    const standby = startTestWorker(db);
+    workers.push(standby);
+    await waitFor(() => standby.logs.some((l) => l.includes('standby')));
+    const ids = await Promise.all(['a', 'b', 'c'].map((t) => queueMessage(t)));
+    for (const { id } of ids) await statusIs(id, 'SENT');
+    expect(holder.fake.sends).toHaveLength(3);
+    expect(standby.fake.sendCalls).toBe(0);
+  });
+
+  it('MSG-18 after the holder is killed, the next holder sends a queued job once', async () => {
+    // A paired Fake session, so the spawned worker connects at once.
+    await createSessionStore(db, TEST_KEY, 'fake').saveCreds(JSON.stringify({ registered: true }));
+    const a = spawnWorker(workerEnv({ WA_LOCK_TTL_MS: '1500' }));
+    spawned.push(a);
+    await a.waitForOutput('WhatsApp lock acquired');
+    await waitFor(() => lastState(rec)?.state === 'connected', 10_000);
+    const b = startTestWorker(db, { config: { lockTtlMs: 1_500 } });
+    workers.push(b);
+    await waitFor(() => b.logs.some((l) => l.includes('standby')));
+
+    a.child.kill('SIGKILL');
+    await a.exited;
+    const { id } = await queueMessage('after the takeover');
+    await statusIs(id, 'SENT', 15_000);
+    expect(b.fake.sends.map((s) => s.text)).toEqual(['after the takeover']);
+    await pause(300);
+    expect(b.fake.sendCalls).toBe(1);
+  });
+
+  it('MSG-19 send jobs run one at a time, in queue order', async () => {
+    const w = await connected();
+    w.fake.delaySends(150);
+    const to = phone();
+    const first = await queueMessage('first', { to });
+    const second = await queueMessage('second', { to });
+    const third = await queueMessage('third', { to });
+    for (const { id } of [first, second, third]) await statusIs(id, 'SENT');
+    expect(w.fake.sends.map((s) => s.text)).toEqual(['first', 'second', 'third']);
+    expect(w.fake.maxActiveSends).toBe(1);
+  });
 });
 
 describe('status', () => {
-  it.todo(
-    'MSG-21 a status report applies nextStatus and publishes only on a change; unknown ids change nothing',
-  );
-  it.todo('MSG-22 the CRM never sets delivered or read itself; a dev Fake send stays at sent');
+  it('MSG-21 a status report applies nextStatus and publishes only on a change', async () => {
+    const w = await connected();
+    const { id } = await queueMessage('track me');
+    await statusIs(id, 'SENT');
+    const providerMessageId = w.fake.sends[0]?.providerMessageId ?? '';
+    rec.clear();
+
+    w.fake.report(providerMessageId, 'delivered');
+    await statusIs(id, 'DELIVERED');
+    w.fake.report(providerMessageId, 'delivered');
+    w.fake.report(providerMessageId, 'sent');
+    w.fake.report(providerMessageId, 'read');
+    await statusIs(id, 'READ');
+    // Out of order, after read.
+    w.fake.report(providerMessageId, 'delivered');
+    w.fake.report(providerMessageId, 'failed');
+    await pause(200);
+    expect(await statusOf(id)).toBe('READ');
+    expect(statuses().map((s) => s.status)).toEqual(['delivered', 'read']);
+  });
+
+  it('MSG-21 a failed report on a sent message marks it failed as reported', async () => {
+    const w = await connected();
+    const { id } = await queueMessage('rejected');
+    await statusIs(id, 'SENT');
+    w.fake.report(w.fake.sends[0]?.providerMessageId ?? '', 'failed');
+    await statusIs(id, 'FAILED');
+    expect((await db.message.findUniqueOrThrow({ where: { id } })).failureReason).toBe(
+      'REPORTED_FAILED',
+    );
+    await waitFor(() => statuses().some((s) => s.status === 'failed'));
+    expect(statuses().at(-1)?.failureReason).toBe('reported_failed');
+  });
+
+  it('MSG-21 a report for an unknown id or an inbound message changes nothing', async () => {
+    const w = await connected();
+    const inboundId = w.fake.receive({ from: phone(), text: 'inbound' });
+    await stored(inboundId);
+    rec.clear();
+    w.fake.report(inboundId, 'read');
+    w.fake.report(`UNKNOWN-${randomUUID()}`, 'delivered');
+    await waitFor(() => w.logs.some((l) => l.includes('status for an unknown message ignored')));
+    await pause(100);
+    expect(
+      (await db.message.findUniqueOrThrow({ where: { providerMessageId: inboundId } })).status,
+    ).toBeNull();
+    expect(statuses()).toHaveLength(0);
+  });
+
+  it('MSG-22 the CRM never sets delivered or read itself; a dev Fake send stays at sent', async () => {
+    // The provider `pnpm dev` uses: the Fake with auto-pairing on.
+    const devFake = (await createProvider('fake')) as FakeProvider;
+    const w = await connected(devFake);
+    const { id } = await queueMessage('dev send');
+    await statusIs(id, 'SENT');
+    await pause(500);
+    expect(await statusOf(id)).toBe('SENT');
+    expect(statuses().map((s) => s.status)).toEqual(['sent']);
+    expect(w.fake.sends).toHaveLength(1);
+  });
 });
 
 describe('logs', () => {
-  it.todo('MSG-26 no worker log line contains a message body or a full phone number');
+  it('MSG-26 no worker log line contains a message body or a full phone number', async () => {
+    const lines: string[] = [];
+    const spies = (['log', 'info', 'warn', 'error'] as const).map((m) =>
+      vi.spyOn(console, m).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      }),
+    );
+    try {
+      const w = await connected();
+      const secret = `secret-${randomUUID()}`;
+      const from = phone();
+      await stored(w.fake.receive({ from, text: secret, profileName: 'Secret Name' }));
+      w.fake.skip('unknown_sender');
+      const sent = await queueMessage(secret, { to: from });
+      await statusIs(sent.id, 'SENT');
+      w.fake.failSends(10);
+      const failed = await queueMessage(secret, { to: from });
+      await statusIs(failed.id, 'FAILED');
+      w.fake.report(`UNKNOWN-${from}`, 'read');
+      await waitFor(() => w.logs.some((l) => l.includes('unknown message')));
+      const all = [...lines, ...w.logs].join('\n');
+      expect(all).toContain('sending a message failed (Error)');
+      expect(all).not.toContain(secret);
+      expect(all).not.toContain(from.slice(1));
+      expect(all).not.toContain('Secret Name');
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
 });

@@ -101,8 +101,25 @@ export const OutboundMessageJob = z.object({
 export type OutboundMessageJob = z.infer<typeof OutboundMessageJob>;
 
 // MSG-20: the forward-only rule. Returns the new status, or null for "no change". The table is in
-// the spec under Contracts touched; the function is written in MSG phase 4, after its test.
+// the spec under Contracts touched.
 export type NextStatus = (current: MessageStatus, reported: ReportedStatus) => MessageStatus | null;
+
+// How far along each status is. `failed` is final, like `read`.
+const RANK: Record<MessageStatus, number> = {
+  queued: 0,
+  sent: 1,
+  delivered: 2,
+  read: 3,
+  failed: 4,
+};
+
+export const nextStatus: NextStatus = (current, reported) => {
+  if (current === 'read' || current === 'failed') return null;
+  // A failure report after delivery is ignored: the message did reach the phone.
+  if (reported === 'failed') return current === 'delivered' ? null : 'failed';
+  // A skipped step (`read` while `sent`) is applied; a step back or a repeat is not.
+  return RANK[reported] > RANK[current] ? reported : null;
+};
 
 // MSG Decision 11: 3 attempts, exponential backoff from 2 s. The api sets these on each job;
 // worker tests add their own jobs with a shorter backoff.

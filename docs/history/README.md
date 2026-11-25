@@ -23,3 +23,4 @@ One file per working session, or per build phase when a spec is built in phases 
 | 2026-11-25 | [2026-11-25-msg-phase-1.md](./2026-11-25-msg-phase-1.md) | MSG approved; MSG phase 1 of 5 (package, contracts, migration, test skeleton) | `bullmq` 6.7.5, `messages.ts` contracts, `msg-core` migration; 177 pass, 34 todo |
 | 2026-11-25 | [2026-11-25-msg-phase-2.md](./2026-11-25-msg-phase-2.md) | MSG phase 2 of 5 (worker inbound: MSG-01 to MSG-07) | Inbound store, dedupe, publish; 188 pass, 27 todo |
 | 2026-11-26 | [2026-11-26-msg-phase-3.md](./2026-11-26-msg-phase-3.md) | MSG phase 3 of 5 (api: MSG-08 to MSG-13, MSG-23) | Conversation and message routes, send queue, room choice; 200 pass, 19 todo |
+| 2026-11-26 | [2026-11-26-msg-phase-4.md](./2026-11-26-msg-phase-4.md) | MSG phase 4 of 5 (worker sending and status: MSG-14 to MSG-22, MSG-26) | Send queue processor, forward-only status; 216 pass, 9 todo |

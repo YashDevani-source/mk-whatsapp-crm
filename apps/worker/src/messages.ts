@@ -1,14 +1,23 @@
 // MSG inbound (MSG-01 to MSG-06): store each message the provider reports, once, then publish it
-// to the api. The connection manager calls this only for the lock holder's current connection
-// (MSG-07).
+// to the api. Status reports (MSG-21) move outbound messages forward only. The connection manager
+// calls this only for the lock holder's current connection (MSG-07).
 import {
   conversationInclude,
   conversationSummary,
+  dbStatus,
   messageInclude,
   messageView,
+  statusOf,
   type Db,
 } from '@crm/db';
-import type { CrmEvent, ProviderInboundMessage, ProviderSkipReason, WaChannels } from '@crm/shared';
+import {
+  nextStatus,
+  type CrmEvent,
+  type ProviderInboundMessage,
+  type ProviderSkipReason,
+  type ReportedStatus,
+  type WaChannels,
+} from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { packageName } from './index.ts';
 
@@ -22,6 +31,7 @@ export interface MessageHandlerDeps {
 export interface MessageHandler {
   onMessage(message: ProviderInboundMessage): Promise<void>;
   onSkipped(reason: ProviderSkipReason): void;
+  onStatus(report: { providerMessageId: string; status: ReportedStatus; at: Date }): Promise<void>;
 }
 
 export function isUniqueViolation(error: unknown): boolean {
@@ -126,6 +136,43 @@ export function createMessageHandler({
     // MSG-04: the reason only, never a number or text.
     onSkipped(reason) {
       log(`${packageName}: skipped a message (${reason})`);
+    },
+
+    // MSG-21: only what the provider reported, and only forward (MSG-20). Receipts for inbound
+    // messages and for unknown ids change nothing.
+    async onStatus({ providerMessageId, status, at }) {
+      const row = await db.message.findUnique({
+        where: { providerMessageId },
+        select: { id: true, conversationId: true, direction: true, status: true },
+      });
+      if (row?.direction !== 'OUTBOUND' || row.status === null) {
+        if (!row) log(`${packageName}: status for an unknown message ignored`);
+        return;
+      }
+      const next = nextStatus(statusOf(row.status), status);
+      if (next === null) return;
+      const changed = await db.message.updateMany({
+        where: { id: row.id, status: row.status },
+        data: {
+          status: dbStatus(next),
+          statusAt: at,
+          ...(next === 'failed' ? { failureReason: 'REPORTED_FAILED' as const } : {}),
+        },
+      });
+      if (changed.count === 0) return;
+      await publishEvents(redis, channels, [
+        {
+          event: 'message.status',
+          data: {
+            v: 1,
+            messageId: row.id,
+            conversationId: row.conversationId,
+            status: next,
+            failureReason: next === 'failed' ? 'reported_failed' : null,
+            at: at.toISOString(),
+          },
+        },
+      ]);
     },
   };
 }
