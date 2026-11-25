@@ -7,7 +7,7 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25, WA closed)
+## Current state (updated 2026-11-25 end of session 7, WA closed)
 - **Done:** Spec 0 (`BOOT`), Spec 1 (`FND`, 20 criteria) and Spec 2 (`WA`, `docs/specs/002-whatsapp.md`, 27 criteria) are built. History: `docs/history/2026-11-25-fnd-phase-*.md`, `…-wa-spec-draft.md`, `…-wa-phase-*.md`.
   - FND: env validation (`parseEnv`), `GET /health`, migration `init` and seed, login with signed `crm_sid` cookie and Redis sessions, `PERMISSION_MAP`/`can()`, the `access(level)` route guard, authenticated sockets with server-assigned rooms (`roomsFor`), logout/deactivation disconnects. FND Decisions 1 to 42.
   - WA worker (`apps/worker/src/`): `connection.ts` (`startWaWorker`: lock, states, backoff, commands, audit), `lock.ts` (`wa:lock`, Lua owner checks), `session-store.ts` + `crypto.ts` (AES-256-GCM, AAD per row), `providers/fake/fake.ts`, `providers/baileys/index.ts` (pinned `baileys` 7.0.0-rc14, connection only), `providers/index.ts` (`createProvider`). Migration `wa-session` (provider column, nullable number, `whatsapp_session_keys`).
@@ -19,7 +19,8 @@
   - typecheck, lint, format:check and traceability pass.
   - Package tests run one package at a time (`--workspace-concurrency=1`): the packages share `crm_test`. Api tests use Redis db 1, worker tests Redis db 2, dev uses db 0. Pub/sub channels carry the db number (`waChannels(db)`, WA-28): Redis pub/sub is shared by all databases, and before this fix a test run logged out the live dev session (WA Decision 43).
   - Worker tests: in-process managers with short timings, plus spawned `main.ts` for the kill/SIGTERM lock tests (WA-03, WA-05).
-- **Next:** the MSG spec (send, receive, status; extends the provider interface and both adapters), after the user's go-ahead.
+- **Next session:** the MSG spec (receive, send through the queue, forward-only status, dedupe; extends the provider interface with `sendText`, `onMessage`, `onStatus` in both adapters). Draft it only after the user's go-ahead.
+- **Dev stack is stopped.** The test number stays linked: `WHATSAPP_PROVIDER=baileys pnpm dev` reconnects without a QR (the `BAILEYS` session is in `crm_dev`). Plain `pnpm dev` uses the Fake provider and does not touch the real session.
 - `crm_dev` holds a `FAKE` session row, a live `BAILEYS` session for the test number, and `wa.*` audit rows from the checks.
 - `pnpm test` is safe to run while the dev stack is connected (proved live, WA Decision 43). Tests must never use Redis db 0: not for keys, not for publishing, not for listening.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.

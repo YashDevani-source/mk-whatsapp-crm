@@ -18,3 +18,4 @@ One file per working session, or per build phase when a spec is built in phases 
 | 2026-11-25 | [2026-11-25-wa-phase-5.md](./2026-11-25-wa-phase-5.md) | WA phase 5 of 5 (WA-26, docs) | Baileys pin test; WA built except WA-27 (real phone, manual); 173 pass, 5 todo |
 | 2026-11-25 | [2026-11-25-wa-phone-check.md](./2026-11-25-wa-phone-check.md) | WA-27 with the real phone; logout confirmation (WA-24) | All WA-27 steps passed; WA closed |
 | 2026-11-25 | [2026-11-25-wa-channel-fix.md](./2026-11-25-wa-channel-fix.md) | Incident: a test run logged out the live session; WA-28 fix | Pub/sub channels scoped by Redis db; 177 pass, 5 todo |
+| 2026-11-25 | [2026-11-25-session-7-summary.md](./2026-11-25-session-7-summary.md) | Session 7 summary | WA closed (WA-01 to WA-28); dev stopped, test number still linked; next: MSG spec |
