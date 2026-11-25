@@ -93,6 +93,12 @@ async function roomsOf(client: Socket): Promise<string[]> {
   return [...socket.rooms].filter((room) => room !== client.id).sort();
 }
 
+// `probe` is a test-only event, outside the typed server events.
+function emitProbe(room: Room, payload: string): void {
+  const target = ctx.io.to(room) as unknown as { emit(event: string, payload: string): boolean };
+  target.emit('probe', payload);
+}
+
 // Sends a `probe` to each room and returns the rooms whose probe reached the client. A final
 // probe to `marker`, a room the client is in, arrives after all of them.
 async function probes(client: Socket, rooms: readonly Room[], marker: Room): Promise<string[]> {
@@ -100,8 +106,8 @@ async function probes(client: Socket, rooms: readonly Room[], marker: Room): Pro
   const done = new Promise<void>((resolve) => {
     client.on('probe', (room: string) => (room === 'marker' ? resolve() : got.push(room)));
   });
-  for (const room of rooms) ctx.io.to(room).emit('probe', room);
-  ctx.io.to(marker).emit('probe', 'marker');
+  for (const room of rooms) emitProbe(room, room);
+  emitProbe(marker, 'marker');
   await within(done);
   client.off('probe');
   return got;
@@ -111,7 +117,7 @@ async function probes(client: Socket, rooms: readonly Room[], marker: Room): Pro
 async function probesAfterDisconnect(client: Socket, rooms: readonly Room[]): Promise<string[]> {
   const got: string[] = [];
   client.on('probe', (room: string) => got.push(room));
-  for (const room of rooms) ctx.io.to(room).emit('probe', room);
+  for (const room of rooms) emitProbe(room, room);
   await pause(200);
   return got;
 }

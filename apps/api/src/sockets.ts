@@ -1,4 +1,4 @@
-import { ROOMS, userRoom, type Room, type SessionUser } from '@crm/shared';
+import { ROOMS, userRoom, type Room, type SessionUser, type WaQr, type WaState } from '@crm/shared';
 import { Server, type DefaultEventsMap } from 'socket.io';
 import {
   authenticate,
@@ -11,8 +11,13 @@ import {
 // Kept on each socket by the handshake (FND-15).
 export type SocketData = Authenticated;
 
-// Room events are added by later specs (INB, WA); FND defines none.
-export type CrmServer = Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
+// Server-to-client room events. WA: `wa.state` to `global`, `wa.qr` to `admin` only (WA-15).
+export interface ServerEvents {
+  'wa.state': (state: WaState) => void;
+  'wa.qr': (qr: WaQr) => void;
+}
+
+export type CrmServer = Server<DefaultEventsMap, ServerEvents, DefaultEventsMap, SocketData>;
 
 export interface SocketControl {
   // Disconnects the sockets opened with this session (logout).

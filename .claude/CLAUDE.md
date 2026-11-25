@@ -18,7 +18,8 @@
   - typecheck, lint, format:check and traceability pass. No FND `it.todo` is left.
   - Api tests use `crm_test` and Redis db 1, create their own users (`apps/api/src/test-support.ts`), and a vitest `globalSetup` migrates `crm_test`. Socket tests serve the app on a free port with `listen(ctx)`.
 - **Not built:** any product module, CORS, the socket origin check, and the UI. No socket room events exist yet.
-- **Next:** write the WA spec (provider interface, Fake and Baileys adapters, QR connection page, the minimal login page, CORS and a socket origin check), after the user's go-ahead. Specs are written and approved before any code.
+- **WA spec drafted** (`docs/specs/002-whatsapp.md`, `Status: draft`, WA-01 to WA-27, not committed). It covers the connection only. Decisions 1 to 4 were agreed with the user: MSG adds send and receive; the dev provider is `fake`, labelled Simulated; the web app is Vite + React with no router; WA writes its own audit rows. Decisions 5 to 11 and the "Open points for review" still need the user's review.
+- **Next:** the user reviews and approves the WA spec, then WA phase 1 (pinned installs, Baileys auth-state type check, contracts, `wa-session` migration, `it.todo` per criterion). Specs are written and approved before any code.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
 - Session notes: `docs/history/`.
 
@@ -97,8 +98,8 @@ If a spec is wrong: update the spec, then the test, then the code. Write decisio
 ## Open items
 - Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
 - Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
-- Specs for every module after FND (WA, MSG, INB, …) are unwritten. The minimal login page is a WA criterion (FND Decision 4).
-- CORS for HTTP and a socket origin check (`ALLOWED_ORIGINS`) are not applied yet (FND Decision 41). Decide them in WA with the login page (a Vite proxy may make CORS unnecessary).
+- Specs after WA (MSG, INB, …) are unwritten. The minimal login page is WA-23 (FND Decision 4).
+- CORS for HTTP and a socket origin check (`ALLOWED_ORIGINS`) are not applied yet (FND Decision 41). The WA draft proposes no CORS (a Vite proxy, same origin) plus origin checks WA-21 and WA-22.
 - The USR deactivate route must call `sockets.endUser` so sockets drop at once (FND Decision 40).
 - FND-03's 2 s health timeout failed once under heavy parallel test load. Watch it in CI.
 - CI (`.github/workflows/ci.yml`) has not run; needs a GitHub repo.

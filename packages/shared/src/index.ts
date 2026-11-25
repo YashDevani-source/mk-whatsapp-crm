@@ -4,3 +4,4 @@ export * from './env.ts';
 export * from './auth.ts';
 export * from './health.ts';
 export * from './rooms.ts';
+export * from './wa.ts';

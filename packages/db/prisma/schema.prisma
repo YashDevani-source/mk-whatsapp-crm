@@ -65,12 +65,35 @@ model Message {
   @@map("messages")
 }
 
+enum WhatsAppProvider {
+  FAKE
+  BAILEYS
+}
+
+// WA: one session per provider, so switching WHATSAPP_PROVIDER never loads the other one's
+// credentials. `number` is known only after pairing. Values are AES-256-GCM encrypted (WA-06).
 model WhatsAppSession {
-  id             String @id @default(uuid()) @db.Uuid
-  number         String @unique
-  encryptedCreds String @map("encrypted_creds")
+  id             String               @id @default(uuid()) @db.Uuid
+  provider       WhatsAppProvider     @unique
+  number         String?              @unique
+  encryptedCreds String               @map("encrypted_creds")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  keys           WhatsAppSessionKey[]
 
   @@map("whatsapp_sessions")
+}
+
+// WA: the provider's signal keys, one row per (type, id), written as the provider updates them.
+model WhatsAppSessionKey {
+  id             String          @id @default(uuid()) @db.Uuid
+  sessionId      String          @map("session_id") @db.Uuid
+  session        WhatsAppSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type           String
+  keyId          String          @map("key_id")
+  encryptedValue String          @map("encrypted_value")
+
+  @@unique([sessionId, type, keyId])
+  @@map("whatsapp_session_keys")
 }
 
 // Insert-only from application code (enforced in AUD).

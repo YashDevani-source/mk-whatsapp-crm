@@ -9,7 +9,9 @@
     "dev": "node --env-file-if-exists=../../.env src/main.ts"
   },
   "dependencies": {
+    "@crm/db": "workspace:*",
     "@crm/shared": "workspace:*",
-    "@crm/db": "workspace:*"
+    "baileys": "7.0.0-rc14",
+    "ioredis": "6.1.0"
   }
 }

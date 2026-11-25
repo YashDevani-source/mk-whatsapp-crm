@@ -11,7 +11,7 @@ import {
 
 // Needs `docker compose up -d --wait`. Uses crm_test only (BOOT-10).
 describe('pnpm migrate', () => {
-  it('FND-04 pnpm migrate creates the six tables on crm_test and a second run applies nothing', async () => {
+  it('FND-04 pnpm migrate creates every table on crm_test and a second run applies nothing', async () => {
     await resetDatabase();
 
     const first = runScript('migrate');

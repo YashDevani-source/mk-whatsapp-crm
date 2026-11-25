@@ -1,5 +1,6 @@
 // FND contracts: env schemas (FND-01, FND-02, FND-19) and the pure parser each app calls at boot.
 import { z } from 'zod';
+import { WaProviderName } from './wa.ts';
 
 const NodeEnv = z.enum(['development', 'test', 'production']).default('development');
 const PostgresUrl = z.url({ protocol: /^postgres(ql)?$/ });
@@ -36,6 +37,13 @@ export const WorkerEnv = z.object({
   REDIS_URL: RedisUrl,
   // 32 bytes as 64 hex characters (AES-256-GCM key for the WhatsApp session, used by WA).
   SESSION_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters'),
+  // WA-01: the Fake provider unless `baileys` is set.
+  WHATSAPP_PROVIDER: WaProviderName.default('fake'),
+  // Single-session lock TTL (WA-02 to WA-05). Heartbeat and standby retry are derived from it.
+  WA_LOCK_TTL_MS: PositiveInt.min(300).default(30_000),
+  // Reconnect backoff after a network drop (WA-11).
+  WA_RECONNECT_BASE_MS: PositiveInt.default(1_000),
+  WA_RECONNECT_MAX_MS: PositiveInt.default(60_000),
 });
 export type WorkerEnv = z.infer<typeof WorkerEnv>;
 

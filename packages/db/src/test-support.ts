@@ -17,6 +17,7 @@ export const TABLES = [
   'conversations',
   'messages',
   'users',
+  'whatsapp_session_keys',
   'whatsapp_sessions',
 ] as const;
 
