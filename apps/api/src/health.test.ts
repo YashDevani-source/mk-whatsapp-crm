@@ -4,6 +4,7 @@ import request from 'supertest';
 import { afterAll, describe, expect, it } from 'vitest';
 import { createApp } from './app.ts';
 import { createRedis } from './redis.ts';
+import { testConfig } from './test-support.ts';
 
 // Compose services (BOOT-10: tests use crm_test only). Nothing listens on port 1.
 const PG_PORT = process.env['POSTGRES_PORT'] ?? '5433';
@@ -22,7 +23,7 @@ function appWith(databaseUrl: string, redisUrl: string): ReturnType<typeof creat
     () => db.$disconnect(),
     () => redis.disconnect(),
   );
-  return createApp({ db, redis });
+  return createApp({ db, redis, config: testConfig() });
 }
 
 afterAll(async () => {

@@ -2,6 +2,7 @@ import type { Db } from '@crm/db';
 import type { DependencyStatus, HealthResponse } from '@crm/shared';
 import { Router } from 'express';
 import type { Redis } from 'ioredis';
+import type { Access } from './access.ts';
 
 // Upper bound for each dependency check, so a hung dependency still yields a 503.
 export const HEALTH_CHECK_TIMEOUT_MS = 2_000;
@@ -35,9 +36,10 @@ export async function checkHealth({ db, redis }: HealthDeps): Promise<HealthResp
 }
 
 // GET /health (FND-03): 200 when every dependency is ok, otherwise 503 naming the down ones.
-export function healthRouter(deps: HealthDeps): Router {
+// Public (FND-13).
+export function healthRouter(deps: HealthDeps, access: Access): Router {
   const router = Router();
-  router.get('/health', async (_req, res) => {
+  router.get('/health', access('public'), async (_req, res) => {
     const body = await checkHealth(deps);
     const allOk = body.postgres === 'ok' && body.redis === 'ok';
     res.status(allOk ? 200 : 503).json(body);

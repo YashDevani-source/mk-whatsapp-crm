@@ -7,19 +7,21 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25, end of FND phase 3)
-- **Done:** Spec 0 (`BOOT`) is implemented. Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) is **approved**. FND phases 1 to 3 of 5 are done:
+## Current state (updated 2026-11-25, end of FND phase 4)
+- **Done:** Spec 0 (`BOOT`) is implemented. Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) is **approved**. FND phases 1 to 4 of 5 are done:
   - Phase 1: contracts and test skeleton.
   - Phase 2: config and health (FND-01, 02, 03, 19). The api and worker validate env at boot (`parseEnv` in `packages/shared/src/env.ts`) and exit naming each bad variable. The api serves `GET /health` (Postgres `SELECT 1` and Redis `PING`, 2 s each). `.env.example` exists.
   - Phase 3: database (FND-04, 05, 06, BOOT-15 test). Migration `init` creates the six tables and unique indexes. `pnpm migrate` checks `MigrateEnv`, then runs `prisma migrate deploy`. `pnpm seed` upserts one argon2id user per role plus 2 test contacts, and refuses production. `crm_dev` is migrated and seeded.
-- **Tests:** `pnpm test` gives 103 passed and 15 `it.todo`.
-  - Passed: 76 root tests (75 BOOT + FND-19) and 27 package tests.
-  - Todo: BOOT-09 and BOOT-16 (manual), plus 13 FND placeholders.
+  - Phase 4: auth and permissions over HTTP (FND-07 to 14, 18). `POST /auth/login` (public), `POST /auth/logout` and `GET /auth/me` (`auth.session`). Signed httpOnly `crm_sid` cookie (HMAC with `SESSION_SECRET`), Redis sessions `sess:<id>` + `user-sess:<userId>`, login rate limit `login-fail:<email>`. `PERMISSION_MAP` and `can()` in `packages/shared/src/auth.ts`. Every route's first handler is `access(level)` (`apps/api/src/access.ts`), which loads the user from Postgres on every request. FND Decisions 28 to 35.
+- **Tests:** `pnpm test` gives 116 passed and 6 `it.todo`.
+  - Passed: 76 root tests (75 BOOT + FND-19) and 40 package tests.
+  - Todo: BOOT-09 and BOOT-16 (manual), plus 4 FND placeholders (socket tests).
   - typecheck, lint, format:check and traceability pass.
-- **Not built:** auth, the route guard, sockets and UI. `/health` is not yet behind the FND-13 guard (phase 4 declares it `public`).
-- **Build plan for FND (5 phases, stop after each, one local commit per phase):** 1 contracts and test skeleton (done) · 2 config and health (done) · 3 database: migrate, constraints, seed (done) · 4 auth and permissions over HTTP (FND-07 to 14, 18) · 5 sockets, manual check, close FND (FND-15, 16, 17, 20).
-- **Next:** FND phase 4, after the user's go-ahead. Reuse `createDb` and `createRedis` (FND Decision 21). Auth tests create their own users in `crm_test`, because the db tests truncate it.
-- **Open FND placeholders:** 13 of 20 criteria are still `it.todo` (FND-07 to 18, and 20). Traceability counts a todo as covered, so check this count, not just `pnpm traceability`.
+  - Api tests use `crm_test` and Redis db 1, create their own users (`apps/api/src/test-support.ts`), and a vitest `globalSetup` migrates `crm_test`.
+- **Not built:** sockets, CORS and UI.
+- **Build plan for FND (5 phases, stop after each, one local commit per phase):** 1 contracts and test skeleton (done) · 2 config and health (done) · 3 database: migrate, constraints, seed (done) · 4 auth and permissions over HTTP (done) · 5 sockets, manual check, close FND (FND-15, 16, 17, 20).
+- **Next:** FND phase 5, after the user's go-ahead. The socket handshake should reuse `readCookie`, `verifyCookie`, `loadSession` and `destroySession` from `apps/api/src/session.ts`. `user-sess:<userId>` lists a user's sessions for FND-20. At the end of phase 5, run the full spec manual check and close FND.
+- **Open FND placeholders:** 4 of 20 criteria are still `it.todo` (FND-15, 16, 17, 20). Traceability counts a todo as covered, so check this count, not just `pnpm traceability`.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
 - Session notes: `docs/history/`.
 
@@ -28,7 +30,7 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - Install: `pnpm install` (also runs `prisma generate` for `@crm/db` via its `postinstall`; regenerate by hand with `pnpm --filter @crm/db generate`)
 - Infra: `docker compose up -d --wait` (Postgres 16 on host port 5433, Redis 7 on 6379; dev user/password `crm`/`crm`; databases `crm_dev` and `crm_test`)
 - Env: `cp .env.example .env`, then fill in `SESSION_SECRET` and `SESSION_ENCRYPTION_KEY` (`openssl rand -hex 32` each). The api and worker `dev` scripts load the root `.env` with `node --env-file-if-exists`. Tests never read `.env`.
-- Dev (web + api + worker): `pnpm dev` (api on port 4000; `curl localhost:4000/health`)
+- Dev (web + api + worker): `pnpm dev` (api on port 4000; `curl localhost:4000/health`; log in with `curl -c jar … /auth/login`, see README)
 - Test: `pnpm test` (root tests in `tests/` + every package's tests)
 - Typecheck: `pnpm typecheck`. Lint: `pnpm lint` (ESLint + dependency-direction check)
 - Migrate / seed: `pnpm migrate`, `pnpm seed` (both load the root `.env`, so they target `crm_dev`). Seeded logins are `superadmin@`, `manager@` and `employee@crm.test`, with password `SEED_PASSWORD` (default `crm-dev-password`).
@@ -40,7 +42,7 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - `scripts/`: `contracts.ts` (shared constants for BOOT), `traceability.ts`, `check-dependency-graph.ts`.
 - `tests/bootstrap/`: tests for the BOOT criteria. `tests/foundation/`: repo-level FND tests (FND-19).
 - FND tests live next to the code they test: `apps/api/src/*.test.ts`, `apps/worker/src/boot.test.ts`, `packages/db/src/*.test.ts`, `packages/shared/src/{env,permissions}.test.ts`.
-- Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps)`, used by tests through supertest), `health.ts` and `redis.ts`. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. `apps/web/src/dev.ts` is still the BOOT placeholder.
+- Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps, { extraRouters })`, used by tests through supertest; `extraRouters` is test-only), `config.ts` (`AuthConfig`), `access.ts` (route guard), `session.ts` (cookie and Redis sessions), `auth.ts` (`/auth` router), `health.ts` and `redis.ts`. `apps/api/src/test-support.ts` and `test-global-setup.ts` are test-only. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. `apps/web/src/dev.ts` is still the BOOT placeholder.
 - `packages/db/prisma/` holds `schema.prisma` and `migrations/` (`20261125145958_init`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. `packages/db/src/{migrate,seed}.ts` are the script entries. `src/test-support.ts` holds the crm_test helpers for the db tests (not exported). The db tests run files serially. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
 - `docs/`: `plan/` (source documents), `specs/`, `data-flow/`, `history/`.
 
@@ -99,6 +101,7 @@ If a spec is wrong: update the spec, then the test, then the code. Write decisio
 - Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
 - Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
 - Specs for every module after FND (WA, MSG, INB, …) are unwritten. The minimal login page is a WA criterion (FND Decision 4).
+- CORS for HTTP (`ALLOWED_ORIGINS`) is not applied yet (FND Decision 35). Decide it in WA with the login page (a Vite proxy may make it unnecessary).
 - CI (`.github/workflows/ci.yml`) has not run; needs a GitHub repo.
 - pnpm skips the install scripts of `prisma` and `@prisma/engines`; the Prisma CLI fetches its schema engine on first use. Check this on the first CI run.
 - Suggested but not specced: CI check for the exact Baileys version pin, struck-through and duplicate IDs in traceability, `format:check` in CI.

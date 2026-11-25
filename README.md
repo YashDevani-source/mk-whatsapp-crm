@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phases 1 (packages, contracts, placeholder tests), 2 (env validation, `GET /health`, `.env.example`) and 3 (database migration, unique constraints, seed) are done. There are still no product features, no login and no UI. `pnpm dev` starts the api (only `/health` so far) and placeholder web and worker processes.
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phases 1 (packages, contracts, placeholder tests), 2 (env validation, `GET /health`, `.env.example`), 3 (database migration, unique constraints, seed) and 4 (login, logout and `/auth/me` with Redis sessions, the login rate limit, the role→permission map and a route guard on every route) are done. There are still no product features and no UI; login works over HTTP only (`curl`). `pnpm dev` starts the api (`/health` and `/auth/*`) and placeholder web and worker processes.
 
 ## What we did in session 1
 
@@ -42,7 +42,16 @@ curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 
 Until both are set, the api and worker refuse to start and name the missing variables. Every variable is explained in `.env.example`. A variable set in your shell overrides the file.
 
-Seeded users (dev only). Every user has the password `SEED_PASSWORD`, which defaults to `crm-dev-password`. Seed refuses to run when `NODE_ENV=production`. Login arrives in FND phase 4.
+Seeded users (dev only). Every user has the password `SEED_PASSWORD`, which defaults to `crm-dev-password`. Seed refuses to run when `NODE_ENV=production`. Log in with `curl` (there is no login page until the WA spec):
+
+```bash
+curl -c jar -H 'Content-Type: application/json' \
+  -d '{"email":"manager@crm.test","password":"crm-dev-password"}' localhost:4000/auth/login
+curl -b jar localhost:4000/auth/me             # {"id":"…","name":"Seed Manager","role":"MANAGER"}
+curl -b jar -X POST localhost:4000/auth/logout # 204; the cookie now gets 401
+```
+
+Five failed logins for one email within 15 minutes block that email with 429 (`LOGIN_MAX_ATTEMPTS`, `LOGIN_WINDOW_SECONDS`).
 
 | Role        | Email                 |
 | ----------- | --------------------- |
@@ -75,7 +84,7 @@ Stop the services with `docker compose down` (add `-v` to delete the database vo
 
 ```
 apps/web         React app (placeholder)
-apps/api         Express + Socket.io API (placeholder)
+apps/api         Express API: /health, /auth (Socket.io arrives in FND phase 5)
 apps/worker      WhatsApp worker; the only place Baileys may be imported (placeholder)
 packages/shared  Zod schemas, types, events, provider interface, permissions
 packages/db      Prisma schema, migrations, client, migrate and seed scripts
@@ -103,5 +112,6 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- FND is in progress: phases 1 to 3 of 5 done. Next is phase 4, auth and permissions over HTTP.
+- FND is in progress: phases 1 to 4 of 5 done. Next is phase 5, authenticated sockets and server-assigned rooms.
+- No CORS yet: the api is only called with `curl` until the login page (WA spec).
 - See [docs/history/](docs/history/README.md) for the full open-items list.

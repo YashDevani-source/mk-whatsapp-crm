@@ -12,8 +12,18 @@ export type Permission = z.infer<typeof Permission>;
 // Every route declares exactly one of these (FND-13).
 export type RouteAccess = 'public' | Permission;
 
-// Values are filled in FND phase 4 (FND-12).
 export type PermissionMap = Readonly<Record<Role, readonly Permission[]>>;
+
+// The single role→permission map (FND-12). Checked on the server only (route guard, socket rooms).
+export const PERMISSION_MAP: PermissionMap = {
+  SUPER_ADMIN: ['auth.session', 'users.manage', 'wa.manage'],
+  MANAGER: ['auth.session', 'users.manage'],
+  EMPLOYEE: ['auth.session'],
+};
+
+export function can(role: Role, permission: Permission): boolean {
+  return PERMISSION_MAP[role].includes(permission);
+}
 
 export const LoginRequest = z.object({
   email: z.string().trim().toLowerCase().pipe(z.email()),
@@ -36,3 +46,9 @@ export const SessionRecord = z.object({
   createdAt: z.number().int(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
+
+// Body of every API error response, e.g. `{ error: 'invalid_credentials' }`.
+export const ApiError = z.object({
+  error: z.string(),
+});
+export type ApiError = z.infer<typeof ApiError>;
