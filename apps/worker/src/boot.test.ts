@@ -9,7 +9,9 @@ const MAIN = fileURLToPath(new URL('./main.ts', import.meta.url));
 const VALID_ENV = {
   NODE_ENV: 'test',
   DATABASE_URL: 'postgresql://crm:crm@localhost:5433/crm_test',
-  REDIS_URL: 'redis://localhost:6379',
+  // Redis db 2, like the WA tests: the worker now takes the WhatsApp lock at startup, and must
+  // never take the dev worker's lock in db 0.
+  REDIS_URL: 'redis://localhost:6379/2',
   SESSION_ENCRYPTION_KEY: 'ab'.repeat(32),
 };
 

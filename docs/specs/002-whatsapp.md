@@ -159,6 +159,19 @@ Made during WA phase 1 (2026-11-25), within the approved build:
 17. FND-04's test title said "the six tables". It now reads "every table", and the db tests' table list includes `whatsapp_session_keys`. The FND-04 criterion text is unchanged and still holds.
 18. The FND socket test's `probe` event is not a typed server event. The test sends it through one small untyped helper.
 
+Made during WA phase 2 (2026-11-25), within the approved build:
+
+19. Worker layout (`apps/worker/src/`): `crypto.ts` (WA-06), `session-store.ts` (`createSessionStore`, `SessionUnreadable`), `lock.ts` (Lua refresh and release with an owner check; the refresh also extends `wa:state`), `backoff.ts` (`reconnectDelay`), `connection.ts` (`startWaWorker`, the manager), `providers/fake/fake.ts`, `providers/baileys/index.ts`, `providers/index.ts` (`createProvider`, which loads Baileys only when selected), `redis.ts`. The Baileys adapter was written in this phase, not phase 5, because WA-01 needs `createProvider('baileys')`. Phase 5 keeps the pin test and the phone check.
+20. Timings come from `WA_LOCK_TTL_MS` alone: the heartbeat every TTL / 3, the standby retry every TTL / 6. With the default 30 s, a takeover after a crash takes at most about 35 s (Decision 8).
+21. The manager runs provider events, commands and reconnects through one in-order queue. Every connect and every deliberate end bumps a generation number, and an event from an older connection is ignored. Losing the lock first stops publishing, then closes the provider.
+22. On shutdown the worker deletes `wa:state` and `wa:qr` and publishes `disconnected` with reason `worker_offline`, so the banner changes at once instead of after the state key's TTL.
+23. Close mapping in the manager: `network` gives `disconnected` and a backoff reconnect; a failed connect also counts as `network`. `restart` reconnects at once. `logged_out` clears the session (WA-12). `qr_timeout` stops (WA-13). `replaced` stops with reason `other`. A `wa.disconnected` audit row is written only when the connection had been `connected`.
+24. The Fake's `pnpm dev` auto-pair delay is 5 s (`FAKE_AUTO_PAIR_MS`), and its number is the fictional `+12025550100`.
+25. Worker tests use Redis **db 2** and `crm_test` (`apps/worker/src/test-support.ts`), a vitest `globalSetup` that migrates `crm_test`, and `fileParallelism: false`. The lock tests WA-03 and WA-05 spawn real `main.ts` processes; the others run the manager in-process with short timings (TTL 600 ms, backoff 50 to 200 ms). FND-02's spawned worker moved to Redis db 2 as well, because the worker now takes the lock at startup.
+26. `tsconfig.base.json` now has `erasableSyntaxOnly`: Node's type stripping rejected a constructor parameter property at runtime, which typecheck had passed. Typecheck now catches such syntax.
+27. The root `pnpm test` runs package tests one package at a time (`pnpm -r --workspace-concurrency=1 test`). With the worker tests spawning processes beside the api tests, FND-03's 2 s health check timed out once (the open item in CLAUDE.md). The packages also share `crm_test`.
+28. The FND-05 raw-SQL tests now truncate after themselves. Vitest orders files by cached duration, so when `schema.test.ts` ran after `seed.test.ts`, its user with the password hash `x` reached the api tests and failed FND-18. This was an FND isolation gap, found by the new order.
+
 ## Build phases
 
 Proposed, the same routine as FND: at the end of each phase run the gate (typecheck, lint, test, traceability, format:check), update CLAUDE.md and the docs, make one local commit, and stop for the user's "next".

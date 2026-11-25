@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "pnpm -r --parallel --filter \"./apps/*\" dev",
-    "test": "vitest run && pnpm -r test",
+    "test": "vitest run && pnpm -r --workspace-concurrency=1 test",
     "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r typecheck",
     "lint": "eslint . && node scripts/check-dependency-graph.ts --root .",
     "migrate": "pnpm --filter @crm/db migrate",

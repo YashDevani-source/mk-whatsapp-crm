@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   TABLES,
   count,
@@ -37,6 +37,12 @@ describe('unique constraints', () => {
   beforeAll(async () => {
     const r = runScript('migrate');
     expect(r.status, r.output).toBe(0);
+    await truncateAll();
+  });
+
+  // The raw rows (users with the password hash 'x') must not reach the api tests, which share
+  // crm_test and run after this package (FND-18 reads every user's hash).
+  afterAll(async () => {
     await truncateAll();
   });
 
