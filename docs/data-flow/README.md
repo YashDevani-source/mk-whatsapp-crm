@@ -1,6 +1,6 @@
 # Data flow: what each route, event and job delivers
 
-Status: **planned, partly built.** The routes in code are `GET /health` (FND phase 2), `/auth/login`, `/auth/logout`, `/auth/me` (FND phase 4), and `POST /wa/qr`, `POST /wa/logout` (WA phase 3). The live events `wa.state` and `wa.qr` are built (WA phases 2 and 3). Every route goes through the `access(level)` guard (`apps/api/src/access.ts`): 401 `unauthenticated` without a valid session, 403 `forbidden` without the permission. The Socket.io server (`apps/api/src/sockets.ts`, FND phase 5) authenticates the handshake with the same cookie and puts each socket in its rooms; no room event and no queue exists yet. Spec 0 built the skeleton, and FND (built) has fixed the paths of its own routes, marked below. This file turns `docs/plan/data-flow-plan.md` (the source) into a lookup of who calls what and what comes back. It is filled in with real paths when each module's spec is written.
+Status: **planned, partly built.** The routes in code are `GET /health` (FND phase 2), `/auth/login`, `/auth/logout`, `/auth/me` (FND phase 4), `POST /wa/qr`, `POST /wa/logout` (WA phase 3), and `GET /conversations`, `GET /conversations/:id/messages`, `POST /conversations/:id/messages` (MSG phase 3). The live events `wa.state`, `wa.qr`, `message.created`, `message.status` and `conversation.updated` are built, and so is the `outbound-message` queue (MSG phase 4). Every route goes through the `access(level)` guard (`apps/api/src/access.ts`): 401 `unauthenticated` without a valid session, 403 `forbidden` without the permission. The Socket.io server (`apps/api/src/sockets.ts`, FND phase 5) authenticates the handshake with the same cookie and puts each socket in its rooms; no room event and no queue exists yet. Spec 0 built the skeleton, and FND (built) has fixed the paths of its own routes, marked below. This file turns `docs/plan/data-flow-plan.md` (the source) into a lookup of who calls what and what comes back. It is filled in with real paths when each module's spec is written.
 
 Rule for every flow: validate, write to Postgres, then enqueue or publish, then push to the right browsers. Postgres is always written first.
 
@@ -12,7 +12,9 @@ Paths are not decided yet, except FND's. Each row says what the route does and w
 | ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------- | ---- |
 | Login / logout / current user: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` (**built**, FND phase 4: `apps/api/src/auth.ts`) | `public` (login) / `auth.session` (logout, me) | Login: `SessionUser` `{id, name, role}` and the signed httpOnly `crm_sid` cookie; session in Redis `sess:<id>` plus `user-sess:<userId>`. 401 `invalid_credentials` (same for every failure), 429 `too_many_attempts` after `LOGIN_MAX_ATTEMPTS` failures per email (`login-fail:<email>`). Logout: 204, session deleted, and the sockets opened with that session disconnected (FND-20). Me: `SessionUser`. The audit entry (also for failed login) is written by AUD, not FND (FND Decision 5). | FND, AUD |
 | Health: `GET /health` (**built**, FND phase 2: `apps/api/src/health.ts`) | `public` (FND-13 guard, phase 4) | `api`, `postgres`, `redis` each `ok` or `down` (`HealthResponse`); 200 if all ok, 503 if any is down. Postgres `SELECT 1` and Redis `PING` run in parallel, 2 s limit each. | FND |
-| Send message                  | Assignee, Manager, Super Admin               | `202` + message ID. Message saved as `queued`, job added. `503` if WhatsApp is not connected, `409` if someone else holds the reply lock. | MSG, INB |
+| Conversations: `GET /conversations` (**built**, MSG: `apps/api/src/messages.ts`) | `inbox.read` (Super Admin, Manager; Employees from INB) | `ConversationList`: up to 200 conversations, newest `lastMessageAt` first, each with the contact (phone, name) and the last message as a preview. | MSG, INB |
+| Messages: `GET /conversations/:id/messages` (**built**, MSG) | `inbox.read` | `MessageList`: the last 100 messages, oldest first by `at`. 404 `not_found` for an unknown or malformed id. | MSG |
+| Send message: `POST /conversations/:id/messages` (**built**, MSG) | `messages.send` (Super Admin, Manager; INB adds the assignee) | Body `SendMessageRequest` `{ text (1 to 4096, trimmed), clientId? }`. 202 + `MessageView` (`queued`); the message is written first, then `message.created` and `conversation.updated` are pushed, then the `outbound-message` job (job id = message id) is added. 200 + the existing message for a repeated `clientId`. 400 `invalid_request`, 404 `not_found`, 503 `wa_not_connected` (nothing stored), 503 `queue_unavailable` (message marked `failed`). INB adds 409 when someone else holds the reply lock. | MSG, INB |
 | Take / refresh reply lock     | Anyone allowed to reply in that chat         | Redis lock for the conversation with a short TTL; `conversation.lock` pushed             | INB  |
 | Assign / reassign conversation | Manager, Super Admin                        | New assignee on the conversation and its open lead; LeadHistory and audit rows; `conversation.updated` pushed | INB  |
 | Update lead (fields, stage)   | Lead owner, Manager, Super Admin             | Updated lead; a LeadHistory row (old value, new value, user, time) and audit entry for stage changes; `lead.updated` pushed | LEAD |
@@ -29,9 +31,9 @@ Paths are not decided yet, except FND's. Each row says what the route does and w
 
 | Event                     | Published by                  | Delivered to                              |
 | ------------------------- | ----------------------------- | ----------------------------------------- |
-| `message.created`         | worker (inbound), API (outbound) | `inbox:all`, `user:<assignee>`         |
-| `message.status`          | worker                        | `inbox:all`, `user:<assignee>`            |
-| `conversation.updated`    | API, worker                   | `inbox:all`, old and new assignee         |
+| `message.created` (**built**, `MessageView`) | worker (inbound and "Sent from phone"), API (CRM sends) | `inbox:all` only until INB adds `user:<assignee>` |
+| `message.status` (**built**, `MessageStatusUpdate`) | worker (sent, provider reports, failures); API (queue failure) | `inbox:all` only until INB |
+| `conversation.updated` (**built**, `ConversationSummary`) | API, worker | `inbox:all` only until INB adds old and new assignee |
 | `conversation.lock`       | API                           | `inbox:all`, `user:<assignee>`            |
 | `lead.created` / `lead.updated` | worker, API             | `inbox:all`, `user:<owner>`               |
 | `followup.due`            | worker                        | `user:<owner>`                            |
@@ -48,7 +50,7 @@ Rooms are joined only by the server, and only after a valid session (**built**, 
 | `admin`      | Super Admin              | QR codes, connection alerts                |
 | `global`     | Everyone logged in       | WhatsApp connection state banner           |
 
-Events travel on the Redis channel `crm:events:<db>` as a `CrmEvent` envelope, where `<db>` is the Redis database in `REDIS_URL` (Redis pub/sub is shared by all databases, so the number keeps dev and the tests apart: WA-28). The api's relay (`apps/api/src/events.ts`) validates each one and chooses the rooms from the event type; an invalid event is dropped and logged by error name (WA-17). The socket handshake is refused for an `Origin` outside `ALLOWED_ORIGINS` (WA-21).
+Events travel on the Redis channel `crm:events:<db>` as a `CrmEvent` envelope, where `<db>` is the Redis database in `REDIS_URL` (Redis pub/sub is shared by all databases, so the number keeps dev and the tests apart: WA-28). The api's relay (`apps/api/src/events.ts`) validates each one, and one function (`pushEvent` in `apps/api/src/sockets.ts`) chooses the rooms from the event type, for relayed events and the api's own pushes alike; an invalid event is dropped and logged by error name (WA-17). The socket handshake is refused for an `Origin` outside `ALLOWED_ORIGINS` (WA-21).
 
 ## WhatsApp connection (built, WA)
 
@@ -57,7 +59,7 @@ Events travel on the Redis channel `crm:events:<db>` as a `CrmEvent` envelope, w
 | `wa:lock` | worker | The lock holder's worker id, TTL `WA_LOCK_TTL_MS` (30 s), refreshed every TTL/3 with an owner check. A standby retries every TTL/6. |
 | `wa:state` | worker | The latest `WaState`, same TTL, refreshed with the lock. Gone means the worker is offline. |
 | `wa:qr` | worker | The latest `WaQr`, 60 s TTL, deleted when the state leaves `qr_required`. |
-| `crm:events:<db>` (channel) | worker | `wa.state`, `wa.qr` (MSG adds its events). |
+| `crm:events:<db>` (channel) | worker | `wa.state`, `wa.qr`, and from MSG `message.created`, `message.status`, `conversation.updated`. |
 | `wa:commands:<db>` (channel) | api | `new_qr`, `logout`. Only the lock holder acts, after checking its own state again. |
 
 States: `connecting` → `qr_required` → `connected`; a network drop gives `disconnected` and a backoff reconnect (1 s doubling to 60 s, ±20 %); a phone logout, an expired QR, an admin logout or an unreadable session stop in `reconnect_required` until "Get new QR". The session (credentials and keys) is stored AES-256-GCM encrypted in `whatsapp_sessions` and `whatsapp_session_keys`, one session per provider.
@@ -66,18 +68,18 @@ States: `connecting` → `qr_required` → `connected`; a network drop gives `di
 
 | Queue               | Job ID                       | Retries          | Idempotency guard                              |
 | ------------------- | ---------------------------- | ---------------- | ---------------------------------------------- |
-| `outbound-message`  | message ID                   | 3, exponential   | Send only if the message is still `queued`     |
+| `outbound-message` (**built**, MSG: api `queue.ts`, worker `send.ts`) | message ID | 3, exponential from 2 s, then `failed` with a reason | Send only if the message is still `queued`; run only by the connected lock holder, one job at a time, inside the connection manager's in-order queue |
 | `campaign-send`     | campaign ID + contact ID     | 3, exponential   | Unique recipient row plus a status check       |
 | `followup-reminder` | follow-up ID (delayed)       | 3                | Unique reminder-sent record                    |
 | `media-download`    | provider message ID          | 3                | Skip if the media is already stored            |
 
 ## The four main paths end to end
 
-**Incoming message:** customer phone, WhatsApp, worker (normalise, upsert contact, upsert conversation, insert message with a unique provider message ID, create a lead if the contact has no open one), then `message.created`, `conversation.updated` and `lead.created` over Redis, then the API pushes to `inbox:all` and the assignee's room. A duplicate provider ID stops the flow quietly.
+**Incoming message (built by MSG, without the lead and assignee parts):** customer phone, WhatsApp, Baileys adapter (skips groups, broadcasts, status and channels; resolves a LID to a phone or skips it; drops protocol messages and reactions; media becomes `unsupported`), worker (one transaction: upsert contact, upsert conversation, insert message with a unique provider message ID, forward-only `lastMessageAt`), then `message.created` and `conversation.updated` over Redis, then the API pushes to `inbox:all`. A duplicate provider ID stops the flow quietly. A message typed on the company phone is stored as outbound with no sender ("Sent from phone"). LEAD adds lead creation, INB the assignee room.
 
-**Outgoing message:** browser, send route (validate, permission, connected check, reply lock), message saved `queued`, job `outbound-message`, worker sends through the provider, saves the provider ID and `sent`, publishes `message.status`, API pushes the tick update.
+**Outgoing message (built by MSG, without the reply lock):** browser, send route (validate, permission, `clientId` repeat, connected check; INB adds the reply lock), message saved `queued` and pushed, job `outbound-message`, worker sends through the provider, saves the provider ID and `sent`, publishes `message.status`, API pushes the tick update.
 
-**Status ticks:** only forward (`queued` → `sent` → `delivered` → `read`; `failed` from `queued` or `sent`). A late or out-of-order receipt is ignored, and an unknown provider ID is ignored and logged. Only what WhatsApp reported is ever shown.
+**Status ticks (built, `nextStatus` in `packages/shared/src/messages.ts`):** only forward (`queued` → `sent` → `delivered` → `read`; `failed` from `queued` or `sent`). A late or out-of-order receipt is ignored, and an unknown provider ID is ignored and logged. Only what WhatsApp reported is ever shown.
 
 **Campaign:** CSV, validate, segment, preview, confirm, recipient rows, queue at a controlled rate. Before every single send the worker checks for pause, opt-out, and test-only with a non-test contact; it then skips with a reason or sends.
 
@@ -86,12 +88,12 @@ States: `connecting` → `qr_required` → `connected`; a network drop gives `di
 | Writer | Writes                                                                                                |
 | ------ | ----------------------------------------------------------------------------------------------------- |
 | API    | Users, assignments, lead changes, notes, outbound messages (`queued`), uploads, follow-ups, campaign setup, audit rows for these |
-| Worker | Contacts, conversations and inbound messages, unread count, auto-created leads, message status, reminders sent, campaign recipient status, WhatsApp session (**built**), audit rows `wa.connected`, `wa.disconnected`, `wa.logged_out` (**built**) |
+| Worker | Contacts, conversations and inbound messages (**built**), message status (**built**), unread count, auto-created leads, reminders sent, campaign recipient status, WhatsApp session (**built**), audit rows `wa.connected`, `wa.disconnected`, `wa.logged_out` (**built**) |
 
 The worker and the API never call each other directly. They talk only through Redis and the database.
 
 ## TODO
 
 - Real route paths and verbs, once INB, LEAD, PROP, FUP, CMP and RPT specs are written.
-- Request and response shapes: they are Zod schemas in `packages/shared`, not yet written.
+- Request and response shapes for INB onwards: Zod schemas in `packages/shared`, not yet written (MSG's are in `messages.ts`).
 - Reply-lock TTL and whether a Manager can override it (open decision in the dev plan).

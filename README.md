@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms) and Spec 2 (WA: the WhatsApp connection) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Messages are not sent or received yet (MSG, next). The real test phone check (WA-27) passed: QR pairing, restart without a new QR, recovery after a network drop, and re-pairing after unlinking from the phone.
+**Current state (2026-11-26):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms), Spec 2 (WA: the WhatsApp connection) and Spec 3 (MSG: receiving and sending text messages) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, a Messages page for the Super Admin and Managers, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Customer messages appear live; replies go through a queue and show only the ticks WhatsApp reports. The real test phone check for WA (WA-27) passed; the one for MSG (MSG-28) is in progress.
 
 ## What we did in session 1
 
@@ -35,7 +35,7 @@ pnpm dev                        # starts web (http://localhost:5173), api and wo
 curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 ```
 
-Open <http://localhost:5173> and log in with a seeded user (below). The Super Admin sees the WhatsApp connection page; everyone sees the connection banner.
+Open <http://localhost:5173> and log in with a seeded user (below). The Super Admin sees the WhatsApp connection page and a Messages tab; a Manager lands on Messages; an Employee sees a placeholder home until the inbox module (INB). Everyone sees the connection banner.
 
 `.env` is gitignored. Two secrets are left blank on purpose. Generate each with `openssl rand -hex 32`:
 
@@ -58,7 +58,7 @@ Socket.io runs on the same port. A connection without a valid `crm_sid` cookie i
 ### WhatsApp
 
 - **Fake (default, `WHATSAPP_PROVIDER=fake`):** a simulation. The connection page shows a simulated QR and pairs itself after 5 seconds; the banner shows a "Simulated" tag.
-- **Real test number (`WHATSAPP_PROVIDER=baileys` in `.env`, then restart `pnpm dev`):** the Super Admin opens the connection page, and on the test phone goes to WhatsApp → Linked devices → Link a device and scans the QR. The session is stored encrypted in Postgres (`SESSION_ENCRYPTION_KEY`), so a restart reconnects without a new QR. "Log out WhatsApp…" (with a confirmation click) unlinks the device; "Get new QR" pairs again after a logout or an expired QR. Use a test number only.
+- **Real test number (`WHATSAPP_PROVIDER=baileys pnpm dev`, or set it in `.env` and restart):** the Super Admin opens the connection page, and on the test phone goes to WhatsApp → Linked devices → Link a device and scans the QR. The session is stored encrypted in Postgres (`SESSION_ENCRYPTION_KEY`), so a restart reconnects without a new QR. "Log out WhatsApp…" (with a confirmation click) unlinks the device; "Get new QR" pairs again after a logout or an expired QR. Use a test number only.
 - Only one worker may hold the WhatsApp session. A second worker prints `standby, another worker holds the WhatsApp lock` and takes over within about 35 s if the first one dies (at once if it is stopped with Ctrl-C).
 - The browser talks only to the Vite dev server, which forwards `/auth`, `/wa` and `/socket.io` to the api, so there is no CORS. The api refuses sockets and non-GET requests from origins not in `ALLOWED_ORIGINS`.
 
@@ -94,9 +94,9 @@ Stop the services with `docker compose down` (add `-v` to delete the database vo
 ## Layout
 
 ```
-apps/web         React app (Vite): login page, WhatsApp connection page, connection banner
-apps/api         Express API: /health, /auth, /wa, and Socket.io with server-assigned rooms
-apps/worker      WhatsApp worker: single-session lock, encrypted session, Fake and Baileys adapters
+apps/web         React app (Vite): login page, WhatsApp connection page, Messages page, connection banner
+apps/api         Express API: /health, /auth, /wa, /conversations, the send queue, and Socket.io with server-assigned rooms
+apps/worker      WhatsApp worker: single-session lock, encrypted session, Fake and Baileys adapters, inbound messages, the send queue processor, message status
 packages/shared  Zod schemas, types, events, provider interface, permissions
 packages/db      Prisma schema, migrations, client, migrate and seed scripts
 scripts/         Traceability and dependency-graph scripts, shared contracts
@@ -112,17 +112,19 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 
 ## Docs
 
-| Where                                       | What                                                                                         |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                                   |
-| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md`, `001-foundation.md` and `002-whatsapp.md` built) |
-| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (partly built)                                      |
-| [docs/history/](docs/history/README.md)     | Session notes                                                                                |
-| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                                        |
+| Where                                       | What                                                                                                             |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                                                       |
+| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md`, `001-foundation.md`, `002-whatsapp.md` and `003-messaging.md` built) |
+| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (partly built)                                                          |
+| [docs/history/](docs/history/README.md)     | Session notes                                                                                                    |
+| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                                                            |
 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- Specs after WA (MSG, INB, …) are not written yet. No message is sent or received yet.
+- Specs after MSG (INB, LEAD, …) are not written yet. Until INB, Employees cannot see or send messages, there is no assignment, reply lock or unread count, and only text messages are handled (media shows as "Unsupported message").
+- The MSG real-phone check (MSG-28) is in progress.
+- If the computer sleeps, the worker loses its WhatsApp lock on wake and takes it again (with Baileys, a reconnect without a QR). Keep the machine awake during a demo.
 - The Baileys pin is a release candidate (`7.0.0-rc14`, npm's `latest`); see WA Decision 6.
 - See [docs/history/](docs/history/README.md) for the full open-items list.
