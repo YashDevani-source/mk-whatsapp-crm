@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=verbose",
-    "dev": "node src/dev.ts"
+    "dev": "vite"
   },
   "dependencies": {
     "@crm/shared": "workspace:*",

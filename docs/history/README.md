@@ -14,3 +14,4 @@ One file per working session, or per build phase when a spec is built in phases 
 | 2026-11-25 | [2026-11-25-wa-phase-1.md](./2026-11-25-wa-phase-1.md) | WA approved; WA phase 1 of 5 (packages, contracts, migration, test skeleton) | Pinned installs, `wa.ts` contracts, `wa-session` migration; 124 pass, 29 todo |
 | 2026-11-25 | [2026-11-25-wa-phase-2.md](./2026-11-25-wa-phase-2.md) | WA phase 2 of 5 (worker: WA-01 to WA-14, worker parts of WA-18 to WA-20) | Lock, encrypted session, connection manager, Fake and Baileys adapters; 148 pass, 15 todo |
 | 2026-11-25 | [2026-11-25-wa-phase-3.md](./2026-11-25-wa-phase-3.md) | WA phase 3 of 5 (api: WA-15 to WA-22) | Event relay, state on connect, `/wa` routes, origin checks, api audit rows; 163 pass, 7 todo |
+| 2026-11-25 | [2026-11-25-wa-phase-4.md](./2026-11-25-wa-phase-4.md) | WA phase 4 of 5 (web: WA-23 to WA-25) | Vite + React login, connection page, banner; browser check passed; 170 pass, 6 todo |

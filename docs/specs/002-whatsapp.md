@@ -170,7 +170,7 @@ Made during WA phase 2 (2026-11-25), within the approved build:
 25. Worker tests use Redis **db 2** and `crm_test` (`apps/worker/src/test-support.ts`), a vitest `globalSetup` that migrates `crm_test`, and `fileParallelism: false`. The lock tests WA-03 and WA-05 spawn real `main.ts` processes; the others run the manager in-process with short timings (TTL 600 ms, backoff 50 to 200 ms). FND-02's spawned worker moved to Redis db 2 as well, because the worker now takes the lock at startup.
 26. `tsconfig.base.json` now has `erasableSyntaxOnly`: Node's type stripping rejected a constructor parameter property at runtime, which typecheck had passed. Typecheck now catches such syntax.
 27. The root `pnpm test` runs package tests one package at a time (`pnpm -r --workspace-concurrency=1 test`). With the worker tests spawning processes beside the api tests, FND-03's 2 s health check timed out once (the open item in CLAUDE.md). The packages also share `crm_test`.
-28. The FND-05 raw-SQL tests now truncate after themselves.
+28. The FND-05 raw-SQL tests now truncate after themselves. Vitest orders files by cached duration, so when `schema.test.ts` ran after `seed.test.ts`, its user with the password hash `x` reached the api tests and failed FND-18. This was an FND isolation gap, found by the new order.
 
 Made during WA phase 3 (2026-11-25), within the approved build:
 
@@ -180,7 +180,13 @@ Made during WA phase 3 (2026-11-25), within the approved build:
 32. On connect, each socket gets `wa.state` from `wa:state` (or `worker_offline`). A socket in `admin` also gets `wa:qr`, but only while the state is `qr_required`, so a stale QR is never shown.
 33. The relay drops a bad event and logs `api: dropped event (<error name>)`, never the content.
 34. Api test support starts the relay for every `testApp`, on its own Redis connection. The promise gets a no-op handler, so a test file that closes before the subscription finishes does not raise an unhandled rejection. BOOT-08's own `pnpm -r test` run now also uses `--workspace-concurrency=1` (Decision 27); in parallel the api and worker suites overlapped and exposed that rejection.
-35. The WA-15 and WA-21 tests were checked against mutations: sending `wa.qr` to `global`, and allowing every origin. Each made its test fail. Vitest orders files by cached duration, so when `schema.test.ts` ran after `seed.test.ts`, its user with the password hash `x` reached the api tests and failed FND-18. This was an FND isolation gap, found by the new order.
+35. The WA-15 and WA-21 tests were checked against mutations: sending `wa.qr` to `global`, and allowing every origin. Each made its test fail.
+
+Made during WA phase 4 (2026-11-25), within the approved build:
+
+36. Web layout (`apps/web/`): `index.html`, `vite.config.ts` (port 5173, `strictPort`, proxy for `/auth`, `/wa`, `/health` and `/socket.io` with `ws`), `src/main.tsx`, `src/App.tsx` (session check, then login or the role's view), `src/pages.tsx` (`LoginPage`, `ConnectionPage`, `HomePage`, `Banner`), `src/useWhatsApp.ts` (socket hook; validates `wa.state` and `wa.qr` with the shared schemas and drops the QR when the state leaves `qr_required`), `src/api.ts`, `src/view.ts` (pure rules), `src/styles.css`. The tsconfig adds `jsx: react-jsx` and the `vite/client` types (TypeScript 6 checks side-effect CSS imports). `src/dev.ts` is deleted; `pnpm dev` runs `vite`.
+37. Pure parts of WA-23 and WA-24 are unit tested too (`viewFor`, `loginErrorText`, `actionErrorText`); the pages themselves stay manual (`it.todo … (manual)`).
+38. Browser check on 2026-11-25 with `pnpm dev` (Fake, `crm_dev`), driven through Playwright: a wrong password showed the generic message; the Employee saw the home page and the banner "Simulated · WhatsApp is connected."; logout returned to the login page; the Super Admin landed on the connection page; "Log out WhatsApp" gave `reconnect_required` (logged out by the Super Admin) with "Get new QR"; that showed the simulated QR, which paired itself after 5 s and returned to `connected`. With `curl`, the Employee got 403 `forbidden` on `POST /wa/qr`, and 403 `forbidden_origin` with a foreign `Origin`. A second dev worker printed the standby line. This covers manual check steps 1 to 4 and 6; step 5 (the phone) is WA-27.
 
 ## Build phases
 

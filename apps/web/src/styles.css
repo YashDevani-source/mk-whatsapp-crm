@@ -1,0 +1,128 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #1d2733;
+  background: #f4f6f8;
+  --ok: #e3f4e8;
+  --ok-text: #1d6b35;
+  --info: #e6effa;
+  --info-text: #1f4f8a;
+  --warn: #fdf0d9;
+  --warn-text: #8a5300;
+}
+
+body {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.top {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: white;
+  border-bottom: 1px solid #dde3e9;
+}
+
+.top span {
+  margin-left: auto;
+  color: #5b6875;
+}
+
+.banner {
+  padding: 0.6rem 1.25rem;
+  font-weight: 500;
+}
+
+.banner-ok {
+  background: var(--ok);
+  color: var(--ok-text);
+}
+
+.banner-info {
+  background: var(--info);
+  color: var(--info-text);
+}
+
+.banner-warn {
+  background: var(--warn);
+  color: var(--warn-text);
+}
+
+.tag {
+  display: inline-block;
+  margin-right: 0.6rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: #5b6875;
+  color: white;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+main {
+  padding: 1.25rem;
+}
+
+.panel {
+  max-width: 40rem;
+  padding: 1.25rem;
+  background: white;
+  border: 1px solid #dde3e9;
+  border-radius: 8px;
+}
+
+.qr {
+  display: block;
+  margin: 1rem 0;
+  border: 1px solid #dde3e9;
+}
+
+.login {
+  max-width: 22rem;
+  margin: 10vh auto;
+}
+
+.login form {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.25rem;
+  background: white;
+  border: 1px solid #dde3e9;
+  border-radius: 8px;
+}
+
+.login label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.login input {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 6px;
+}
+
+.error {
+  margin: 0;
+  color: #a12a2a;
+}
+
+.loading {
+  padding: 2rem;
+}
