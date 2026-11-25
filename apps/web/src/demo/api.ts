@@ -1,9 +1,11 @@
 // The demo api: one async function per future route, run in the browser against the demo store.
 // It is the "server" of demo mode (DEMO Decision 6): every call reads the session like a cookie,
-// checks the role and the Employee scope, and only then answers. Nothing here calls `fetch`.
+// checks the role, the Employee scope and the reply lock, and only then answers. Nothing here
+// calls `fetch`.
 import {
-  CLOSED_LEAD_STAGES,
+  SendMessageRequest,
   type AuditEntry,
+  type ConversationStatus,
   type FollowUpView,
   type InboxConversation,
   type InboxItem,
@@ -11,13 +13,18 @@ import {
   type LeadView,
   type MessageSender,
   type ProjectView,
+  type ReplyLock,
+  type Role,
   type SessionUser,
   type UserView,
+  type WaQr,
 } from '@crm/shared';
 import { demoCan, scopedToSelf, type DemoAction } from './access.ts';
 import type { DemoBus } from './bus.ts';
+import * as engine from './engine.ts';
 import { DEMO_PASSWORD } from './seed.ts';
 import type { ConversationRow, DemoData, DemoStore, FollowUpRow, LeadRow, WaRow } from './store.ts';
+import { byAt, itemsOf, toConversation, toFollowUp, toLead } from './views.ts';
 
 export type DemoErrorCode =
   | 'invalid_credentials'
@@ -25,6 +32,7 @@ export type DemoErrorCode =
   | 'forbidden'
   | 'not_found'
   | 'invalid_body'
+  | 'wrong_state'
   | 'wa_not_connected'
   | 'reply_locked'
   | 'already_sent';
@@ -35,6 +43,7 @@ const STATUS: Record<DemoErrorCode, number> = {
   forbidden: 403,
   not_found: 404,
   invalid_body: 400,
+  wrong_state: 409,
   wa_not_connected: 409,
   reply_locked: 409,
   already_sent: 409,
@@ -73,6 +82,7 @@ export interface DemoApiDeps {
   // The simulated network time (DEMO Decision 5). Tests pass one that resolves at once.
   delay?: () => Promise<void>;
   newId?: () => string;
+  random?: () => number;
 }
 
 export interface WaView {
@@ -81,103 +91,33 @@ export interface WaView {
   since: string;
 }
 
+export interface WaAdminView extends WaView {
+  qr: WaQr | null;
+  qrAttempts: number;
+}
+
+export interface Assignee extends MessageSender {
+  role: Role;
+}
+
 function randomDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 150 + Math.random() * 250));
 }
 
-// Row → view mappers, the demo counterpart of packages/db/src/views.ts.
-export function senderOf(data: DemoData, userId: string | null): MessageSender | null {
-  const user = userId ? data.users.find((u) => u.id === userId) : undefined;
-  return user ? { id: user.id, name: user.name } : null;
-}
-
-function byAt<T extends { at: string }>(a: T, b: T): number {
-  return a.at.localeCompare(b.at);
-}
-
-function itemAt(item: InboxItem): string {
-  return item.kind === 'message' ? item.message.at : item.note.at;
-}
-
-function itemConversation(item: InboxItem): string {
-  return item.kind === 'message' ? item.message.conversationId : item.note.conversationId;
-}
-
-export function itemsOf(data: DemoData, conversationId: string): InboxItem[] {
-  return data.items
-    .filter((item) => itemConversation(item) === conversationId)
-    .sort((a, b) => itemAt(a).localeCompare(itemAt(b)));
-}
-
-// The customer's open lead, or their newest one when all are closed.
-export function leadForContact(data: DemoData, contactId: string): LeadRow | undefined {
-  const leads = data.leads
-    .filter((l) => l.contactId === contactId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return leads.find((l) => !CLOSED_LEAD_STAGES.includes(l.stage)) ?? leads[0];
-}
-
-export function toConversation(data: DemoData, row: ConversationRow): InboxConversation {
-  const contact = data.contacts.find((c) => c.id === row.contactId);
-  if (!contact) throw new Error(`conversation ${row.id} has no contact`);
-  const messages = itemsOf(data, row.id).flatMap((i) => (i.kind === 'message' ? [i.message] : []));
-  const last = messages.at(-1) ?? null;
-  const lead = leadForContact(data, row.contactId);
-  return {
-    v: 1,
-    id: row.id,
-    contact,
-    lastMessageAt: last?.at ?? null,
-    lastMessage: last,
-    status: row.status,
-    assignee: senderOf(data, row.assigneeId),
-    unreadCount: row.unreadCount,
-    leadId: lead?.id ?? null,
-    leadStage: lead?.stage ?? null,
-  };
-}
-
-export function toLead(data: DemoData, row: LeadRow): LeadView {
-  const contact = data.contacts.find((c) => c.id === row.contactId);
-  if (!contact) throw new Error(`lead ${row.id} has no contact`);
-  return {
-    v: 1,
-    id: row.id,
-    contact,
-    stage: row.stage,
-    owner: senderOf(data, row.ownerId),
-    needs: row.needs,
-    source: row.source,
-    conversationId: row.conversationId,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-    closedAt: row.closedAt,
-  };
-}
-
-export function toFollowUp(data: DemoData, row: FollowUpRow): FollowUpView {
-  const lead = data.leads.find((l) => l.id === row.leadId);
-  const contact = lead && data.contacts.find((c) => c.id === lead.contactId);
-  const owner = senderOf(data, row.ownerId);
-  if (!lead || !contact || !owner) throw new Error(`follow-up ${row.id} is incomplete`);
-  return {
-    v: 1,
-    id: row.id,
-    leadId: row.leadId,
-    conversationId: lead.conversationId,
-    contact,
-    owner,
-    dueAt: row.dueAt,
-    note: row.note,
-    autoReply: row.autoReply,
-    sentAt: row.sentAt,
-    doneAt: row.doneAt,
-  };
-}
-
 export function createDemoApi(deps: DemoApiDeps) {
-  const { store, session } = deps;
+  const { store, session, bus } = deps;
   const delay = deps.delay ?? randomDelay;
+  const now = deps.now ?? (() => new Date());
+  const newId = deps.newId ?? (() => crypto.randomUUID());
+  const random = deps.random ?? Math.random;
+
+  // Runs a change in one store write, then sends its live events (to this tab and the others).
+  function mutate<T>(change: (data: DemoData, ctx: engine.EngineCtx) => T): T {
+    const ctx: engine.EngineCtx = { now: now(), newId, random, events: [] };
+    const result = store.write((data) => change(data, ctx));
+    for (const envelope of ctx.events) bus.emitEnvelope(envelope);
+    return result;
+  }
 
   function currentUser(): UserView | undefined {
     const id = session.get();
@@ -188,11 +128,15 @@ export function createDemoApi(deps: DemoApiDeps) {
   // Every protected call starts here: the session, then the role (DEMO-09).
   async function guard(action: DemoAction): Promise<UserView> {
     await delay();
+    // Answer from the newest saved copy, which another tab may have written (DEMO Decision 21).
+    store.sync();
     const user = currentUser();
     if (!user) throw new DemoApiError('unauthenticated');
     if (!demoCan(user.role, action)) throw new DemoApiError('forbidden');
     return user;
   }
+
+  const sender = (user: UserView): MessageSender => ({ id: user.id, name: user.name });
 
   // DEMO-10: an Employee sees only rows assigned to them; anything else is "not found".
   const ownsConversation = (user: UserView, row: ConversationRow): boolean =>
@@ -202,8 +146,8 @@ export function createDemoApi(deps: DemoApiDeps) {
   const ownsFollowUp = (user: UserView, row: FollowUpRow): boolean =>
     !scopedToSelf(user.role) || row.ownerId === user.id;
 
-  function conversationRow(user: UserView, id: string): ConversationRow {
-    const row = store.data.conversations.find((c) => c.id === id);
+  function conversationRow(user: UserView, id: string, data: DemoData = store.data) {
+    const row = data.conversations.find((c) => c.id === id);
     if (!row || !ownsConversation(user, row)) throw new DemoApiError('not_found');
     return row;
   }
@@ -214,22 +158,17 @@ export function createDemoApi(deps: DemoApiDeps) {
     return row;
   }
 
-  function audit(
-    actor: MessageSender | null,
-    action: AuditEntry['action'],
-    target: string | null,
-    detail: string | null = null,
-  ): void {
-    store.write((data) => {
-      data.audit.push({
-        id: deps.newId?.() ?? crypto.randomUUID(),
-        actor,
-        action,
-        target,
-        detail,
-        at: (deps.now?.() ?? new Date()).toISOString(),
-      });
-    });
+  // The checks every outgoing message passes (DEMO-13, DEMO-17, DEMO-20).
+  function checkSend(data: DemoData, user: UserView, conversationId: string): void {
+    if (!engine.waConnected(data)) throw new DemoApiError('wa_not_connected');
+    const lock = engine.activeLock(data, conversationId, now());
+    if (lock && lock.holder.id !== user.id) throw new DemoApiError('reply_locked');
+  }
+
+  function parseText(text: string): string {
+    const parsed = SendMessageRequest.safeParse({ text });
+    if (!parsed.success) throw new DemoApiError('invalid_body');
+    return parsed.data.text;
   }
 
   const toSession = (user: UserView): SessionUser => ({
@@ -239,7 +178,9 @@ export function createDemoApi(deps: DemoApiDeps) {
   });
 
   return {
-    // DEMO-06: one message for every failure, as the real api does (FND-08).
+    // ── Session (DEMO-06, DEMO-07) ──
+
+    // One message for every failure, as the real api does (FND-08).
     async login(email: string, password: string): Promise<SessionUser> {
       await delay();
       const wanted = email.trim().toLowerCase();
@@ -248,7 +189,7 @@ export function createDemoApi(deps: DemoApiDeps) {
         throw new DemoApiError('invalid_credentials');
       }
       session.set(user.id);
-      audit({ id: user.id, name: user.name }, 'auth.login', user.name);
+      mutate((data, ctx) => engine.audit(data, ctx, sender(user), 'auth.login', user.name));
       return toSession(user);
     },
 
@@ -263,20 +204,51 @@ export function createDemoApi(deps: DemoApiDeps) {
       await delay();
       const user = currentUser();
       if (user) {
-        // The user's reply locks go with them (DEMO-20).
-        store.write((data) => {
-          data.locks = data.locks.filter((l) => l.holder.id !== user.id);
+        mutate((data, ctx) => {
+          // The user's reply locks go with them (DEMO-20).
+          for (const lock of data.locks.filter((l) => l.holder.id === user.id)) {
+            engine.releaseLock(data, ctx, lock.conversationId, user.id);
+          }
+          engine.audit(data, ctx, sender(user), 'auth.logout', user.name);
         });
-        audit({ id: user.id, name: user.name }, 'auth.logout', user.name);
       }
       session.set(null);
     },
+
+    // ── WhatsApp, simulated (DEMO-11 to DEMO-13) ──
 
     async getWa(): Promise<WaView> {
       await guard('wa.read');
       const { state, number, since } = store.data.wa;
       return { state, number, since };
     },
+
+    async getWaAdmin(): Promise<WaAdminView> {
+      await guard('wa.manage');
+      const { state, number, since, qr, qrAttempts } = store.data.wa;
+      return { state, number, since, qr, qrAttempts };
+    },
+
+    async requestQr(): Promise<void> {
+      await guard('wa.manage');
+      if (!mutate((data, ctx) => engine.waRequestQr(data, ctx))) {
+        throw new DemoApiError('wrong_state');
+      }
+    },
+
+    async scanQr(): Promise<void> {
+      await guard('wa.manage');
+      if (!mutate((data, ctx) => engine.waScan(data, ctx))) throw new DemoApiError('wrong_state');
+    },
+
+    async logoutWa(): Promise<void> {
+      const user = await guard('wa.manage');
+      if (!mutate((data, ctx) => engine.waLogout(data, ctx, sender(user)))) {
+        throw new DemoApiError('wrong_state');
+      }
+    },
+
+    // ── Inbox (DEMO-14 to DEMO-21) ──
 
     async listConversations(): Promise<InboxConversation[]> {
       const user = await guard('inbox.read');
@@ -297,6 +269,117 @@ export function createDemoApi(deps: DemoApiDeps) {
       conversationRow(user, conversationId);
       return itemsOf(store.data, conversationId);
     },
+
+    // DEMO-15: opening a chat marks it read for the team.
+    async openConversation(id: string): Promise<void> {
+      const user = await guard('inbox.read');
+      if (conversationRow(user, id).unreadCount === 0) return;
+      mutate((data, ctx) => {
+        const row = conversationRow(user, id, data);
+        row.unreadCount = 0;
+        ctx.events.push({ event: 'conversation.updated', payload: toConversation(data, row) });
+      });
+    },
+
+    async sendMessage(conversationId: string, text: string): Promise<void> {
+      const user = await guard('messages.send');
+      const body = parseText(text);
+      mutate((data, ctx) => {
+        const row = conversationRow(user, conversationId, data);
+        checkSend(data, user, conversationId);
+        engine.sendOutbound(data, ctx, row, sender(user), body);
+      });
+    },
+
+    // A failed message is sent again as a new message; the failed one stays as it was.
+    async retryMessage(messageId: string): Promise<void> {
+      const user = await guard('messages.send');
+      mutate((data, ctx) => {
+        const item = data.items.find((i) => i.kind === 'message' && i.message.id === messageId);
+        if (item?.kind !== 'message') throw new DemoApiError('not_found');
+        const row = conversationRow(user, item.message.conversationId, data);
+        if (item.message.status !== 'failed' || item.message.body === null) {
+          throw new DemoApiError('wrong_state');
+        }
+        checkSend(data, user, row.id);
+        engine.sendOutbound(data, ctx, row, sender(user), item.message.body, item.property);
+      });
+    },
+
+    // DEMO-18: notes need no connection and no lock, and never reach the customer.
+    async addNote(conversationId: string, text: string): Promise<void> {
+      const user = await guard('inbox.read');
+      const body = parseText(text);
+      mutate((data, ctx) => {
+        engine.addNote(data, ctx, conversationRow(user, conversationId, data), sender(user), body);
+      });
+    },
+
+    async listAssignees(): Promise<Assignee[]> {
+      await guard('inbox.assign');
+      return store.data.users
+        .filter((u) => u.active)
+        .map((u) => ({ id: u.id, name: u.name, role: u.role }));
+    },
+
+    async assignConversation(conversationId: string, assigneeId: string | null): Promise<void> {
+      const user = await guard('inbox.assign');
+      mutate((data, ctx) => {
+        const row = conversationRow(user, conversationId, data);
+        if (assigneeId !== null && !data.users.some((u) => u.id === assigneeId && u.active)) {
+          throw new DemoApiError('invalid_body');
+        }
+        engine.assign(data, ctx, row, sender(user), assigneeId);
+      });
+    },
+
+    async setConversationStatus(conversationId: string, status: ConversationStatus): Promise<void> {
+      const user = await guard('inbox.read');
+      mutate((data, ctx) => {
+        engine.setStatus(
+          data,
+          ctx,
+          conversationRow(user, conversationId, data),
+          sender(user),
+          status,
+        );
+      });
+    },
+
+    // ── Reply lock (DEMO-20) ──
+
+    async getLock(conversationId: string): Promise<ReplyLock | null> {
+      const user = await guard('inbox.read');
+      conversationRow(user, conversationId);
+      return engine.activeLock(store.data, conversationId, now());
+    },
+
+    // Typing takes the lock, or renews it; someone else's lock refuses it.
+    async typing(conversationId: string): Promise<ReplyLock> {
+      const user = await guard('messages.send');
+      return mutate((data, ctx) => {
+        conversationRow(user, conversationId, data);
+        const lock = engine.activeLock(data, conversationId, ctx.now);
+        if (lock && lock.holder.id !== user.id) throw new DemoApiError('reply_locked');
+        return engine.takeLock(data, ctx, conversationId, sender(user));
+      });
+    },
+
+    async stopTyping(conversationId: string): Promise<void> {
+      const user = await guard('messages.send');
+      mutate((data, ctx) => engine.releaseLock(data, ctx, conversationId, user.id));
+    },
+
+    // Managers and the Super Admin can take a locked chat over (DEMO Decision 8).
+    async takeOver(conversationId: string): Promise<ReplyLock> {
+      const user = await guard('inbox.assign');
+      return mutate((data, ctx) => {
+        conversationRow(user, conversationId, data);
+        return engine.takeLock(data, ctx, conversationId, sender(user));
+      });
+    },
+
+    // ── Leads, follow-ups, properties, users, audit (read; edits arrive in phases 3 and 4) ──
 
     async listLeads(): Promise<LeadView[]> {
       const user = await guard('leads.read');
@@ -341,6 +424,52 @@ export function createDemoApi(deps: DemoApiDeps) {
     async listAudit(): Promise<AuditEntry[]> {
       await guard('audit.read');
       return [...store.data.audit].sort((a, b) => b.at.localeCompare(a.at));
+    },
+
+    // ── Demo controls: the reviewer's tools, open to every logged-in user, labelled Demo ──
+
+    async demoContacts(): Promise<{ phone: string; label: string }[]> {
+      await guard('inbox.read');
+      return store.data.contacts.map((c) => ({ phone: c.phone, label: c.name ?? c.phone }));
+    },
+
+    async demoAgents(): Promise<Assignee[]> {
+      await guard('inbox.read');
+      return store.data.users
+        .filter((u) => u.active)
+        .map((u) => ({ id: u.id, name: u.name, role: u.role }));
+    },
+
+    async simulateInbound(input: engine.InboundInput): Promise<string> {
+      await guard('inbox.read');
+      if (input.text.trim() === '') throw new DemoApiError('invalid_body');
+      const id = mutate((data, ctx) => engine.receiveInbound(data, ctx, input));
+      if (id === null) throw new DemoApiError('wrong_state');
+      return id;
+    },
+
+    async simulateAgent(conversationId: string, agentId: string): Promise<void> {
+      await guard('inbox.read');
+      mutate((data, ctx) => {
+        const row = data.conversations.find((c) => c.id === conversationId);
+        const agent = data.users.find((u) => u.id === agentId && u.active);
+        if (!row || !agent) throw new DemoApiError('not_found');
+        if (!engine.waConnected(data)) throw new DemoApiError('wa_not_connected');
+        engine.simulateAgent(data, ctx, row, sender(agent));
+      });
+    },
+
+    async dropConnection(): Promise<void> {
+      await guard('inbox.read');
+      if (!mutate((data, ctx) => engine.waDrop(data, ctx))) throw new DemoApiError('wrong_state');
+    },
+
+    async setAutoActivity(on: boolean): Promise<void> {
+      await guard('inbox.read');
+      mutate((data) => {
+        data.settings.autoActivity = on;
+        data.sim.nextAutoAt = null;
+      });
     },
 
     // The demo accounts for the login page. Public, like the page itself.

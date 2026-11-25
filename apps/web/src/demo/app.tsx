@@ -2,14 +2,27 @@
 // (DEMO-02, DEMO-08, DEMO-09). The demo api enforces every rule; the guard only mirrors it.
 import type { SessionUser } from '@crm/shared';
 import { useEffect, useState, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, NavLink, Outlet, Route, Routes, useNavigate } from 'react-router';
+import {
+  BrowserRouter,
+  Navigate,
+  NavLink,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from 'react-router';
 import { bannerText } from '../view.ts';
-import { canOpen, landingPath, navFor, PAGES, type PageKey } from './access.ts';
+import { canOpen, landingPath, navFor, pageForPath, PAGES, type PageKey } from './access.ts';
 import { UserProvider, useDemo, useLive, useUser } from './context.tsx';
+import { DemoControls } from './controls.tsx';
 import { formatPhone } from './format.ts';
+import { InboxPage } from './inbox-page.tsx';
 import { LoginPage } from './login.tsx';
 import { DEMO_COMPANY } from './seed.ts';
+import { ToastHost } from './toasts.tsx';
 import { Avatar, Empty, NoAccess, PageHeader, RoleBadge, Skeleton, Tag } from './ui.tsx';
+import { WhatsAppPage } from './whatsapp-page.tsx';
 
 export function DemoApp() {
   const { api } = useDemo();
@@ -74,7 +87,7 @@ export function DemoApp() {
 const PAGE_ELEMENTS: Readonly<Record<PageKey, ReactNode>> = {
   dashboard: <Placeholder page="dashboard" phase={4} />,
   home: <Placeholder page="home" phase={4} />,
-  inbox: <Placeholder page="inbox" phase={2} />,
+  inbox: <InboxPage />,
   leads: <Placeholder page="leads" phase={3} />,
   properties: <Placeholder page="properties" phase={3} />,
   followUps: <Placeholder page="followUps" phase={3} />,
@@ -82,7 +95,7 @@ const PAGE_ELEMENTS: Readonly<Record<PageKey, ReactNode>> = {
   users: <Placeholder page="users" phase={4} />,
   reports: <Placeholder page="reports" phase={4} />,
   audit: <Placeholder page="audit" phase={4} />,
-  whatsapp: <Placeholder page="whatsapp" phase={2} />,
+  whatsapp: <WhatsAppPage />,
 };
 
 function Placeholder({ page, phase }: { page: PageKey; phase: number }) {
@@ -106,6 +119,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const { api } = useDemo();
   const user = useUser();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const chats = useLive((a) => a.listConversations(), 'conversations');
+  const unread = (chats.data ?? []).filter((c) => c.unreadCount > 0).length;
+  const flush = pageForPath(location.pathname) === 'inbox';
 
   async function logout(): Promise<void> {
     await api.logout().catch(() => undefined);
@@ -133,9 +151,20 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
             >
               {PAGES[page].label}
+              {page === 'inbox' && unread > 0 && (
+                <span className="nav-badge" aria-label={`${unread} chats with unread messages`}>
+                  {unread}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
+        <div className="sidebar-footer">
+          <button type="button" className="btn btn-demo" onClick={() => setControlsOpen(true)}>
+            Demo controls
+          </button>
+          <span className="muted small">Simulate customers, agents and drops.</span>
+        </div>
       </aside>
       <div className="main-col">
         <header className="topbar">
@@ -150,9 +179,12 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           </div>
         </header>
         <WaBanner />
-        <main className="content">
-          <Outlet />
-        </main>
+        <ToastHost>
+          <main className={flush ? 'content flush' : 'content'}>
+            <Outlet />
+          </main>
+          {controlsOpen && <DemoControls onClose={() => setControlsOpen(false)} />}
+        </ToastHost>
       </div>
     </div>
   );

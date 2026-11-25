@@ -762,5 +762,6 @@ export function buildSeed(now: Date): DemoData {
     },
     locks: [],
     settings: { autoActivity: true },
+    sim: { tasks: [], nextAutoAt: null },
   };
 }

@@ -97,3 +97,13 @@ export function useLive<T>(load: (api: DemoApi) => Promise<T>, key: string = '')
 
   return state;
 }
+
+// The current time, refreshed every `ms` (countdowns, lock expiry, "5 min ago").
+export function useNow(ms: number): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), ms);
+    return () => clearInterval(timer);
+  }, [ms]);
+  return now;
+}

@@ -7,6 +7,7 @@ import { DemoApp } from './app.tsx';
 import { DemoBus } from './bus.ts';
 import { DemoProvider } from './context.tsx';
 import { buildSeed } from './seed.ts';
+import { setVisibilityCheck, startSimulator } from './sim.ts';
 import { DemoStore, STORAGE_KEY } from './store.ts';
 import './demo.css';
 
@@ -25,10 +26,16 @@ export function mountDemo(root: HTMLElement): void {
   const bus = new DemoBus('crm-demo');
   const api = createDemoApi({ store, bus, session, now });
 
-  // Another tab changed the data: take its copy, so both windows show the same inbox.
+  // Every tab runs the simulator; a task still runs once (DEMO Decision 19).
+  setVisibilityCheck(() => document.visibilityState === 'visible');
+  startSimulator({ store, bus, now });
+
+  // Another tab changed the data: take its copy, so both windows show the same inbox. The
+  // `storage` event is fast; the 1 s check covers tabs that miss it (DEMO Decision 21).
   window.addEventListener('storage', (event) => {
-    if (event.key === STORAGE_KEY) store.reload();
+    if (event.key === STORAGE_KEY) store.sync();
   });
+  setInterval(() => store.sync(), 1000);
 
   createRoot(root).render(
     <StrictMode>

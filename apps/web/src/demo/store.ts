@@ -10,9 +10,11 @@ import {
   LeadNeeds,
   LeadSource,
   LeadStage,
+  MessageFailureReason,
   OptOut,
   ProjectView,
   ReplyLock,
+  ReportedStatus,
   UserView,
   WaQr,
   WaState,
@@ -70,6 +72,30 @@ export const WaRow = z.object({
 });
 export type WaRow = z.infer<typeof WaRow>;
 
+// Simulated work that happens later (QR refresh, reconnect, ticks, a simulated agent's reply).
+// Kept in the store, so whichever tab runs the simulator does it once (DEMO Decision 19).
+const TaskBase = { id: z.uuid(), at: At };
+export const SimTask = z.discriminatedUnion('kind', [
+  z.object({ ...TaskBase, kind: z.literal('qr_refresh'), qr: z.string() }),
+  z.object({ ...TaskBase, kind: z.literal('wa_connect') }),
+  z.object({ ...TaskBase, kind: z.literal('wa_reconnect') }),
+  z.object({
+    ...TaskBase,
+    kind: z.literal('status'),
+    messageId: z.uuid(),
+    status: ReportedStatus,
+    reason: MessageFailureReason.nullable(),
+  }),
+  z.object({
+    ...TaskBase,
+    kind: z.literal('agent_reply'),
+    conversationId: z.uuid(),
+    userId: z.uuid(),
+    text: z.string(),
+  }),
+]);
+export type SimTask = z.infer<typeof SimTask>;
+
 export const DemoData = z.object({
   v: z.literal(1),
   users: z.array(UserView),
@@ -86,6 +112,7 @@ export const DemoData = z.object({
   wa: WaRow,
   locks: z.array(ReplyLock),
   settings: z.object({ autoActivity: z.boolean() }),
+  sim: z.object({ tasks: z.array(SimTask), nextAutoAt: At.nullable() }),
 });
 export type DemoData = z.infer<typeof DemoData>;
 
@@ -109,6 +136,8 @@ type Listener = () => void;
 
 export class DemoStore {
   private current: DemoData;
+  // The saved text `current` was read from, so an unchanged copy is not parsed again.
+  private raw: string | null = null;
   private readonly listeners = new Set<Listener>();
   private readonly storage: KeyValueStorage;
   private readonly makeSeed: () => DemoData;
@@ -123,9 +152,19 @@ export class DemoStore {
     return this.current;
   }
 
-  // Applies a change, saves it and tells every subscriber.
+  // Applies a change to the newest saved copy, saves it and tells every subscriber. Reading
+  // first means a change made by another tab a moment ago is not overwritten.
   write<T>(change: (data: DemoData) => T): T {
-    const result = change(this.current);
+    this.current = this.load();
+    let result: T;
+    try {
+      result = change(this.current);
+    } catch (error) {
+      // The change stopped half way: forget the in-memory copy, the saved one is still right.
+      this.raw = null;
+      this.current = this.load();
+      throw error;
+    }
     this.save();
     this.notify();
     return result;
@@ -137,10 +176,13 @@ export class DemoStore {
     this.notify();
   }
 
-  // Another tab saved a change (the `storage` event): take its copy.
-  reload(): void {
+  // Takes a copy another tab saved, if there is one (DEMO Decision 21). Returns whether the
+  // data changed.
+  sync(): boolean {
+    if (this.storage.getItem(STORAGE_KEY) === this.raw) return false;
     this.current = this.load();
     this.notify();
+    return true;
   }
 
   subscribe(listener: Listener): () => void {
@@ -151,21 +193,27 @@ export class DemoStore {
   // A missing, corrupt or outdated copy is replaced by the seed (DEMO-05).
   private load(): DemoData {
     const raw = this.storage.getItem(STORAGE_KEY);
+    if (raw !== null && raw === this.raw) return this.current;
     if (raw !== null) {
       try {
         const parsed = DemoData.safeParse(JSON.parse(raw));
-        if (parsed.success) return parsed.data;
+        if (parsed.success) {
+          this.raw = raw;
+          return parsed.data;
+        }
       } catch {
         // Not JSON: fall through to the seed.
       }
     }
     const seed = this.makeSeed();
-    this.storage.setItem(STORAGE_KEY, JSON.stringify(seed));
+    this.raw = JSON.stringify(seed);
+    this.storage.setItem(STORAGE_KEY, this.raw);
     return seed;
   }
 
   private save(): void {
-    this.storage.setItem(STORAGE_KEY, JSON.stringify(this.current));
+    this.raw = JSON.stringify(this.current);
+    this.storage.setItem(STORAGE_KEY, this.raw);
   }
 
   private notify(): void {

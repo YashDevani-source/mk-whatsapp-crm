@@ -1,7 +1,7 @@
 // Small shared pieces of the demo design system: tags, badges, page header, empty, loading and
 // error states.
 import type { Role } from '@crm/shared';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { DemoApiError, type DemoErrorCode } from './api.ts';
 import { initials } from './format.ts';
 
@@ -79,6 +79,7 @@ const ERROR_TEXT: Readonly<Record<DemoErrorCode, string>> = {
   forbidden: "You don't have access to this.",
   not_found: 'This item does not exist or is not assigned to you.',
   invalid_body: 'Some fields are not valid. Check them and try again.',
+  wrong_state: 'The state changed in the meantime. Check it and try again.',
   wa_not_connected: 'WhatsApp is not connected. Try again when the banner is green.',
   reply_locked: 'Someone else is replying in this chat.',
   already_sent: 'Already sent.',
@@ -102,6 +103,47 @@ export function NoAccess() {
     <div className="no-access">
       <h1>You don't have access to this page</h1>
       <p className="muted">Ask a Manager or the Super Admin if you think you should.</p>
+    </div>
+  );
+}
+
+export function Modal({
+  title,
+  children,
+  actions,
+  onClose,
+}: {
+  title: string;
+  children: ReactNode;
+  actions: ReactNode;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="backdrop"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2>{title}</h2>
+        <div className="modal-body">{children}</div>
+        <div className="modal-actions">{actions}</div>
+      </div>
     </div>
   );
 }

@@ -21,6 +21,11 @@ export interface DemoEvents {
 
 export type DemoEventName = keyof DemoEvents;
 
+// One event and its payload, typed together.
+export type BusEnvelope = {
+  [E in DemoEventName]: { event: E; payload: DemoEvents[E] };
+}[DemoEventName];
+
 type Handler<E extends DemoEventName> = (payload: DemoEvents[E]) => void;
 
 interface Envelope {
@@ -58,6 +63,11 @@ export class DemoBus {
   emit<E extends DemoEventName>(event: E, payload: DemoEvents[E]): void {
     this.deliver(event, payload);
     this.channel?.postMessage({ event, payload });
+  }
+
+  emitEnvelope(envelope: BusEnvelope): void {
+    this.deliver(envelope.event, envelope.payload);
+    this.channel?.postMessage(envelope);
   }
 
   close(): void {

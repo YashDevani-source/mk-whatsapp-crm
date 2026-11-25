@@ -1,6 +1,6 @@
 Status: approved
 
-Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: phase 1 built (DEMO-01, DEMO-03 to DEMO-10 have passing tests); phases 2 to 5 open.
+Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: phases 1 and 2 built (DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20, DEMO-22 have passing tests; DEMO-02, DEMO-14, DEMO-21 are manual); phases 3 to 5 open.
 
 Drafted 2026-11-26 (session 9) after the user changed the flow: "complete this project with dummy data and dummy api responses with dummy logins and dummy qrs for prototype". The user chose (Decision 1): a mock mode inside the web app, a light spec with smoke tests, react-router with plain CSS, and live activity by buttons plus a gentle auto mode.
 
@@ -170,6 +170,11 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 16. Phase 1: the demo api keeps the logged-in user's id in `sessionStorage` (`crm-demo-session`), the data in `localStorage` (`crm-demo-v1`), and sends live events to the other tabs through a `BroadcastChannel` (`crm-demo`); the `storage` event reloads the store in the other tabs.
 17. Phase 1: ids in the seed are fixed v4 UUIDs (`demoId(kind, n)`), so a reset gives the same ids and links stay valid. Runtime rows use `crypto.randomUUID()`.
 18. Phase 1: the eslint ignores and `.prettierignore` gained `.agents/`, `.aider-desk/` and `skills-lock.json`, local AI-tool files that appeared in the working tree on 2026-11-26 (not created by this build, not committed). Without the ignores `pnpm lint` and `format:check` fail on them.
+19. Phase 2: simulated work that happens later (QR refresh, connect, reconnect, ticks, a simulated agent's reply) is stored as tasks in the demo data (`sim.tasks`), not as browser timers. Every open tab runs the simulator (`sim.ts`, every 500 ms); a store write takes the due tasks out of the newest saved copy and runs them in one synchronous step, so a task runs once however many tabs are open. A first version let only one tab run the simulator (a Web Lock); it was dropped because Chrome throttles timers in hidden tabs, so ticks froze when the leader tab was in the background. Only a visible tab starts an auto enquiry, so two tabs do not both send one.
+20. Phase 2: sending a message releases the sender's reply lock (the lock means "is typing a reply"). Typing renews it at most every 5 s; it expires 60 s after the last renewal; logging out or losing the chat (reassignment) releases it. Notes need neither the lock nor a connection.
+21. Phase 2: cross-tab sync. The store remembers the saved text it last read; `sync()` reloads only when the saved text differs. Every demo api call syncs first, the simulator syncs before each round, and each tab also syncs on the `storage` event and every 1 s (headless Chrome did not always deliver the `storage` event to background tabs). A write always starts from the newest saved copy and, when a change throws half way, drops the in-memory copy.
+22. Phase 2: Retry on a failed message sends a new message with the same text (and property card); the failed one stays failed, so status only moves forward. Assigning a chat also moves its open lead to the new owner (with a history row), and a reply to a closed chat reopens it; a customer whose leads are all closed gets a new New lead. A STOP message adds the number to the opt-out list (DEMO-28's automatic part).
+23. Phase 2: errors from actions show as toasts; a new customer message the user may see shows a toast with "Open chat" unless that chat is open. New error code `wrong_state` (409) for actions in the wrong connection or message state.
 
 ## Build phases
 

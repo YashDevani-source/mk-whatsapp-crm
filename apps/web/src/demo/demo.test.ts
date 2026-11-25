@@ -15,8 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isDemoMode } from '../mode.ts';
 import { canOpen, landingPath, navFor, PAGES, pageForPath } from './access.ts';
 import { createDemoApi, DemoApiError, memorySession, type DemoApi } from './api.ts';
-import { DemoBus } from './bus.ts';
+import { DemoBus, type BusEnvelope } from './bus.ts';
+import { TIMING, type EngineCtx } from './engine.ts';
 import { buildSeed, DEMO_PASSWORD, isTestNumber } from './seed.ts';
+import { runDue } from './sim.ts';
 import { DemoData, DemoStore, memoryStorage, STORAGE_KEY, type KeyValueStorage } from './store.ts';
 
 const NOW = new Date('2026-11-26T10:00:00.000Z');
@@ -25,18 +27,67 @@ interface Harness {
   api: DemoApi;
   store: DemoStore;
   storage: KeyValueStorage;
+  // Every live event sent, in order.
+  events: BusEnvelope[];
+  // Moves the test clock forward and runs the simulator, like the leader tab does.
+  advance: (ms: number) => void;
 }
 
 function harness(storage: KeyValueStorage = memoryStorage()): Harness {
+  let clock = NOW;
   const store = new DemoStore(storage, () => buildSeed(NOW));
+  const bus = new DemoBus();
+  const events: BusEnvelope[] = [];
+  const record = <E extends BusEnvelope['event']>(event: E) =>
+    bus.on(event, (payload) => events.push({ event, payload } as BusEnvelope));
+  for (const e of [
+    'wa.state',
+    'wa.qr',
+    'message.created',
+    'message.status',
+    'conversation.updated',
+    'lock.changed',
+  ] as const) {
+    record(e);
+  }
   const api = createDemoApi({
     store,
-    bus: new DemoBus(),
+    bus,
     session: memorySession(),
-    now: () => NOW,
+    now: () => clock,
     delay: () => Promise.resolve(),
+    random: () => 0.5,
   });
-  return { api, store, storage };
+  const advance = (ms: number): void => {
+    // In small steps, so tasks scheduled by other tasks run too.
+    for (let left = ms; left > 0; left -= 250) {
+      clock = new Date(clock.getTime() + Math.min(250, left));
+      const ctx: EngineCtx = {
+        now: clock,
+        newId: () => crypto.randomUUID(),
+        random: () => 0.5,
+        events: [],
+      };
+      store.write((data) => runDue(data, ctx));
+      for (const envelope of ctx.events) bus.emitEnvelope(envelope);
+    }
+  };
+  return { api, store, storage, events, advance };
+}
+
+// Ids of seeded rows by customer name.
+function conversationOf(store: DemoStore, name: string): string {
+  const contact = store.data.contacts.find((c) => c.name === name);
+  const row = store.data.conversations.find((c) => c.contactId === contact?.id);
+  if (!row) throw new Error(`no conversation for ${name}`);
+  return row.id;
+}
+
+function lastMessage(store: DemoStore, conversationId: string) {
+  const messages = store.data.items.flatMap((i) =>
+    i.kind === 'message' && i.message.conversationId === conversationId ? [i.message] : [],
+  );
+  return messages.sort((a, b) => a.at.localeCompare(b.at)).at(-1);
 }
 
 async function rejection(promise: Promise<unknown>): Promise<string> {
@@ -274,19 +325,295 @@ describe('demo roles', () => {
   });
 });
 
-describe('demo criteria built in later phases', () => {
-  it.todo('DEMO-11 simulated QR: random DEMO string, 20 s refresh, reconnect_required after 3');
-  it.todo('DEMO-12 simulate scan connects, log out needs a confirm, both audited and pushed');
-  it.todo('DEMO-13 drop connection disables sends with wa_not_connected, then recovers');
+describe('demo WhatsApp (simulated)', () => {
+  it('DEMO-11 the QR is a random DEMO string, refreshes every 20 s, and times out after 3', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'aarav');
+    await api.logoutWa();
+    const first = (await api.getWaAdmin()).qr?.qr ?? '';
+    expect(first).toMatch(/^DEMO-[0-9a-f-]{36}$/);
+    expect((await api.getWa()).state.state).toBe('qr_required');
+
+    advance(TIMING.qrRefreshMs);
+    const second = (await api.getWaAdmin()).qr?.qr;
+    expect(second).toMatch(/^DEMO-/);
+    expect(second).not.toBe(first);
+    advance(TIMING.qrRefreshMs);
+    expect(store.data.wa.qrAttempts).toBe(3);
+    advance(TIMING.qrRefreshMs);
+    const wa = await api.getWaAdmin();
+    expect(wa.state).toMatchObject({ state: 'reconnect_required', reason: 'qr_timeout' });
+    expect(wa.qr).toBeNull();
+
+    // "Get new QR" starts again; the QR is only for the Super Admin.
+    await api.requestQr();
+    expect((await api.getWaAdmin()).qr).not.toBeNull();
+    await login(api, 'neha');
+    expect(await rejection(api.getWaAdmin())).toBe('forbidden');
+    expect(await rejection(api.requestQr())).toBe('forbidden');
+  });
+
+  it('DEMO-12 simulate scan connects, log out moves to qr_required, both audited and pushed', async () => {
+    const { api, store, events, advance } = harness();
+    await login(api, 'aarav');
+    expect(await rejection(api.scanQr())).toBe('wrong_state');
+    await api.logoutWa();
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'wa.logout',
+      actor: { name: 'Aarav Shah' },
+    });
+    await api.scanQr();
+    expect((await api.getWa()).state.state).toBe('connecting');
+    advance(TIMING.connectMs);
+    const wa = await api.getWa();
+    expect(wa.state.state).toBe('connected');
+    expect(wa.number).toBe('+12025550100');
+    expect(store.data.audit.at(-1)?.action).toBe('wa.connected');
+    const states = events.flatMap((e) => (e.event === 'wa.state' ? [e.payload.state] : []));
+    expect(states).toEqual(['qr_required', 'connecting', 'connected']);
+    expect(events.some((e) => e.event === 'wa.qr')).toBe(true);
+  });
+
+  it('DEMO-13 a dropped connection refuses sends, fails a queued one, and comes back', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'neha');
+    const id = conversationOf(store, 'Meera Joshi');
+    await api.sendMessage(id, 'Queued just before the drop');
+    const queued = lastMessage(store, id);
+    await api.dropConnection();
+    expect((await api.getWa()).state).toMatchObject({ state: 'disconnected', reason: 'network' });
+    expect(await rejection(api.sendMessage(id, 'Hello?'))).toBe('wa_not_connected');
+    advance(TIMING.sentMs);
+    const failed = store.data.items.find(
+      (i) => i.kind === 'message' && i.message.id === queued?.id,
+    );
+    expect(failed?.kind === 'message' && failed.message).toMatchObject({
+      status: 'failed',
+      failureReason: 'wa_not_connected',
+    });
+    advance(TIMING.reconnectMs + TIMING.connectMs);
+    expect((await api.getWa()).state.state).toBe('connected');
+    await api.sendMessage(id, 'Back online');
+  });
+});
+
+describe('demo inbox', () => {
   it.todo('DEMO-14 inbox three columns with list filters (manual)');
-  it.todo('DEMO-15 opening a chat clears unread; an inbound message raises it live');
-  it.todo('DEMO-16 replies move queued, sent, delivered, read forward only; failing contact fails');
-  it.todo('DEMO-17 the composer enforces 1 to 4096 characters');
-  it.todo('DEMO-18 internal notes are stored, yellow, never ticked, never delivered');
-  it.todo('DEMO-19 assign and status changes are live, audited, and refused to Employees');
-  it.todo('DEMO-20 the reply lock refuses other senders, expires, and can be taken over');
+
+  it('DEMO-15 opening a chat clears unread; an inbound message raises it live', async () => {
+    const { api, store, events } = harness();
+    await login(api, 'neha');
+    const id = conversationOf(store, 'Rahul Sharma');
+    expect((await api.getConversation(id)).unreadCount).toBe(2);
+    await api.openConversation(id);
+    expect((await api.getConversation(id)).unreadCount).toBe(0);
+
+    const rahul = store.data.contacts.find((c) => c.name === 'Rahul Sharma');
+    await api.simulateInbound({ phone: rahul?.phone ?? '', text: 'Any update?' });
+    const list = await api.listConversations();
+    expect(list[0]?.id).toBe(id);
+    expect(list[0]?.unreadCount).toBe(1);
+    expect(list[0]?.lastMessage?.body).toBe('Any update?');
+    expect(events.map((e) => e.event)).toEqual(
+      expect.arrayContaining(['message.created', 'conversation.updated']),
+    );
+  });
+
+  it('DEMO-15 two tabs share the data: a change in one reaches the other and is never overwritten', async () => {
+    const storage = memoryStorage();
+    const tabA = harness(storage);
+    const tabB = harness(storage);
+    await login(tabA.api, 'neha');
+    await login(tabB.api, 'rohan');
+    const id = conversationOf(tabA.store, 'Rahul Sharma');
+    await tabA.api.addNote(id, 'Written in tab A');
+    let notified = false;
+    tabB.store.subscribe(() => (notified = true));
+    expect(tabB.store.sync()).toBe(true);
+    expect(notified).toBe(true);
+    expect(tabB.store.sync()).toBe(false);
+    // Tab B writes on top of A's change, even without syncing first.
+    await tabA.api.addNote(id, 'Second note from A');
+    await tabB.api.addNote(id, 'Written in tab B');
+    const notes = (await tabA.api.listItems(id)).flatMap((i) =>
+      i.kind === 'note' ? [i.note.body] : [],
+    );
+    expect(notes).toEqual(['Written in tab A', 'Second note from A', 'Written in tab B']);
+  });
+
+  it('DEMO-16 a reply moves queued, sent, delivered, read; the failing contact fails; Retry sends again', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'priya');
+    const id = conversationOf(store, 'Meera Joshi');
+    await api.sendMessage(id, 'Saturday 10:30 works.');
+    const message = lastMessage(store, id);
+    expect(message).toMatchObject({ status: 'queued', sender: { name: 'Priya Nair' } });
+    const statusOf = () => lastMessage(store, id)?.status;
+    advance(TIMING.sentMs);
+    expect(statusOf()).toBe('sent');
+    advance(TIMING.deliveredMs - TIMING.sentMs);
+    expect(statusOf()).toBe('delivered');
+    advance(TIMING.readMinMs + TIMING.readSpreadMs);
+    expect(statusOf()).toBe('read');
+
+    await login(api, 'karan');
+    const failing = conversationOf(store, 'Divya Pillai');
+    await api.sendMessage(failing, 'It is ₹4 per sq ft per month.');
+    advance(TIMING.failMs);
+    const failed = lastMessage(store, failing);
+    expect(failed).toMatchObject({ status: 'failed', failureReason: 'provider_error' });
+    await api.retryMessage(failed?.id ?? '');
+    expect(lastMessage(store, failing)).toMatchObject({ status: 'queued', body: failed?.body });
+    // The failed one stays failed (forward only).
+    const before = store.data.items.find(
+      (i) => i.kind === 'message' && i.message.id === failed?.id,
+    );
+    expect(before?.kind === 'message' && before.message.status).toBe('failed');
+    expect(await rejection(api.retryMessage(lastMessage(store, failing)?.id ?? ''))).toBe(
+      'wrong_state',
+    );
+  });
+
+  it('DEMO-17 the text must be 1 to 4096 characters after trimming', async () => {
+    const { api, store } = harness();
+    await login(api, 'neha');
+    const id = conversationOf(store, 'Meera Joshi');
+    expect(await rejection(api.sendMessage(id, '   '))).toBe('invalid_body');
+    expect(await rejection(api.sendMessage(id, 'x'.repeat(4097)))).toBe('invalid_body');
+    await api.sendMessage(id, `  ${'x'.repeat(4096)}  `);
+    expect(lastMessage(store, id)?.body).toHaveLength(4096);
+    expect(await rejection(api.addNote(id, ''))).toBe('invalid_body');
+  });
+
+  it('DEMO-18 an internal note is stored with the chat, never ticked, never a message', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'neha');
+    const id = conversationOf(store, 'Meera Joshi');
+    const before = (await api.getConversation(id)).lastMessage?.id;
+    await api.addNote(id, 'Prefers a morning visit.');
+    const items = await api.listItems(id);
+    const note = items.at(-1);
+    expect(note).toMatchObject({ kind: 'note', note: { body: 'Prefers a morning visit.' } });
+    expect(note && 'message' in note).toBe(false);
+    // The customer-facing last message is unchanged, and notes work while WhatsApp is down.
+    expect((await api.getConversation(id)).lastMessage?.id).toBe(before);
+    await api.dropConnection();
+    await api.addNote(id, 'Written while WhatsApp is down.');
+    advance(TIMING.readMinMs + TIMING.readSpreadMs);
+    expect(store.data.sim.tasks.every((t) => t.kind !== 'status')).toBe(true);
+  });
+
+  it('DEMO-19 assign and status changes are pushed and audited; Employees cannot assign', async () => {
+    const { api, store, events } = harness();
+    await login(api, 'neha');
+    const id = conversationOf(store, 'Rahul Sharma');
+    const priya = store.data.users.find((u) => u.name === 'Priya Nair');
+    await api.assignConversation(id, priya?.id ?? null);
+    expect((await api.getConversation(id)).assignee?.name).toBe('Priya Nair');
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'conversation.assigned',
+      detail: 'Unassigned → Priya Nair',
+    });
+    // The open lead follows the chat.
+    const lead = await api.getLead((await api.getConversation(id)).leadId ?? '');
+    expect(lead.owner?.name).toBe('Priya Nair');
+    await api.setConversationStatus(id, 'pending');
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'conversation.status',
+      detail: 'Open → Pending',
+    });
+    expect(events.filter((e) => e.event === 'conversation.updated').length).toBeGreaterThanOrEqual(
+      2,
+    );
+    expect(await rejection(api.assignConversation(id, 'not-a-user'))).toBe('invalid_body');
+
+    await login(api, 'priya');
+    expect(await rejection(api.assignConversation(id, null))).toBe('forbidden');
+    await api.setConversationStatus(id, 'open');
+    expect((await api.getConversation(id)).status).toBe('open');
+  });
+
+  it('DEMO-20 the reply lock refuses other senders, expires, and can be taken over', async () => {
+    const { api, store, advance } = harness();
+    const id = conversationOf(store, 'Meera Joshi');
+    await login(api, 'priya');
+    const lock = await api.typing(id);
+    expect(lock.holder.name).toBe('Priya Nair');
+
+    await login(api, 'neha');
+    expect((await api.getLock(id))?.holder.name).toBe('Priya Nair');
+    expect(await rejection(api.sendMessage(id, 'Hi'))).toBe('reply_locked');
+    expect(await rejection(api.typing(id))).toBe('reply_locked');
+    await api.takeOver(id);
+    expect((await api.getLock(id))?.holder.name).toBe('Neha Kapoor');
+    await api.sendMessage(id, 'I will take this one.');
+    expect(await api.getLock(id)).toBeNull();
+
+    // Expiry after 60 s without typing.
+    await login(api, 'priya');
+    await api.typing(id);
+    advance(TIMING.lockMs + 250);
+    await login(api, 'neha');
+    expect(await api.getLock(id)).toBeNull();
+
+    // A simulated agent holds the lock, then replies and lets go.
+    const karan = store.data.users.find((u) => u.name === 'Karan Verma');
+    await api.simulateAgent(id, karan?.id ?? '');
+    expect(await rejection(api.sendMessage(id, 'Hi'))).toBe('reply_locked');
+    advance(TIMING.agentReplyMs);
+    expect(lastMessage(store, id)?.sender?.name).toBe('Karan Verma');
+    expect(await api.getLock(id)).toBeNull();
+
+    // Employees cannot take over; logging out releases the lock.
+    await login(api, 'priya');
+    await api.typing(id);
+    await login(api, 'karan');
+    expect(await rejection(api.takeOver(id))).toBe('forbidden');
+    await login(api, 'priya');
+    await api.logout();
+    expect(store.data.locks.filter((l) => l.conversationId === id)).toHaveLength(0);
+  });
+
   it.todo('DEMO-21 sent-from-phone, unsupported, day separators and new-messages divider (manual)');
-  it.todo('DEMO-22 simulated customer messages create conversations and New leads');
+
+  it('DEMO-22 simulated customers create conversations and New leads; auto activity every ~45 s', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'neha');
+    const before = store.data.conversations.length;
+    const id = await api.simulateInbound({ text: 'Hi, I saw your ad for 2 BHK flats.' });
+    const chat = await api.getConversation(id);
+    expect(store.data.conversations).toHaveLength(before + 1);
+    expect(chat).toMatchObject({
+      status: 'open',
+      assignee: null,
+      unreadCount: 1,
+      leadStage: 'new',
+    });
+    expect(isTestNumber(chat.contact.phone)).toBe(true);
+    expect(store.data.audit.at(-1)?.action).toBe('lead.created');
+
+    // A closed chat reopens, and a closed lead gets a new open one.
+    const lakshmi = store.data.contacts.find((c) => c.name === 'Lakshmi Narayan');
+    const lakshmiChat = conversationOf(store, 'Lakshmi Narayan');
+    expect((await api.getConversation(lakshmiChat)).status).toBe('closed');
+    await api.simulateInbound({ phone: lakshmi?.phone ?? '', text: 'Hello again' });
+    expect((await api.getConversation(lakshmiChat)).status).toBe('open');
+    expect((await api.getConversation(lakshmiChat)).leadStage).toBe('new');
+
+    // Auto activity: the first round sets the clock, later rounds bring a message.
+    const count = () => store.data.items.filter((i) => i.kind === 'message').length;
+    advance(250);
+    const start = count();
+    advance(TIMING.autoMs + 10_000);
+    expect(count()).toBeGreaterThan(start);
+    await api.setAutoActivity(false);
+    const off = count();
+    advance(TIMING.autoMs * 3);
+    expect(count()).toBe(off);
+  });
+});
+
+describe('demo criteria built in later phases', () => {
   it.todo('DEMO-23 lead changes add history and audit rows; one open lead per customer');
   it.todo('DEMO-24 share a property into a chat; upload type and size rules');
   it.todo('DEMO-25 follow-up tabs; Run now (test) sends once');
