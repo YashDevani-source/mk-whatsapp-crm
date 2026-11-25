@@ -26,6 +26,9 @@ import {
 
 // WA-28: the channels of Redis db 1, the api tests' database.
 const CHANNELS = waChannels(1);
+// WA-28: "another database" is db 9, which nothing uses. Never db 0: that is the dev stack, and a
+// command published there reaches a live worker (WA Decision 43).
+const OTHER_DB = 9;
 
 // Needs `docker compose up -d --wait`. crm_test and Redis db 1 only. The worker is simulated by
 // writing its Redis keys and publishing on its channels directly.
@@ -211,8 +214,8 @@ describe('channel isolation', () => {
     expect(ctx.redis.options.db).toBe(1);
     const admin = await connect('SUPER_ADMIN');
     await waitFor(() => admin.states.length === 1);
-    // Another database's worker (dev on db 0, worker tests on db 2) and the old shared name.
-    for (const channel of [waChannels(0).events, waChannels(2).events, 'crm:events']) {
+    // Another database's worker (db 9, and the worker tests' db 2) and the old shared name.
+    for (const channel of [waChannels(OTHER_DB).events, waChannels(2).events, 'crm:events']) {
       await publish({ event: 'wa.qr', data: qr('FOREIGN') }, channel);
       await publish({ event: 'wa.state', data: state('reconnect_required') }, channel);
     }
@@ -226,7 +229,7 @@ describe('channel isolation', () => {
     const other = createRedis(TEST_REDIS_URL);
     const heard: string[] = [];
     other.on('message', (channel: string) => heard.push(channel));
-    await other.subscribe(waChannels(0).commands, waChannels(2).commands, 'wa:commands');
+    await other.subscribe(waChannels(OTHER_DB).commands, waChannels(2).commands, 'wa:commands');
     try {
       await setWorkerState(state('connected'));
       await request(ctx.app).post('/wa/logout').set('Cookie', cookieOf('SUPER_ADMIN')).expect(202);

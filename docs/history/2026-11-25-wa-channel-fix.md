@@ -17,5 +17,10 @@ Purpose: record what was done, who authorised it, and where it ended. Session 7,
 | 4 | Code: worker (`connection.ts`), api relay (`events.ts`) and routes (`wa.ts`) take the db from their own Redis client (`redis.options.db`). `EVENTS_CHANNEL` and `WA_REDIS.commands` removed from shared, so nothing can use a global name. | Same. |
 | 5 | Gate: typecheck, lint, test (177 passed, 5 todo), traceability, format:check all exit 0. Data-flow and CLAUDE.md updated. One local commit with the logout confirmation (Decision 41) and the WA-27 records (Decision 42). | Phase-end routine. |
 
+## Second incident, same session
+- The live check (dev connected at 17:42:08, then `pnpm test`) failed at 17:43:07: my new WA-28 tests themselves published on db 0's channels to stand for "another database", so the dev worker obeyed a test `logout` again, and the api test pushed a fake QR and states to the user's browser.
+- Fixed: the WA-28 tests use db 9 (unused) and never publish or listen on db 0 (spec Decision 43, extended). Checked the other tests: only `boot.test.ts` (spawned api, publishes nothing) and `health.test.ts` (`PING`) touch db 0.
+- Re-run with a recorder on `crm:events:0` and `wa:commands:0`: 0 messages during the whole `pnpm test` (17:45:40 to 17:47:51), 0 dropped events in the dev api, 177 passed. One local commit.
+
 ## Still to do
 - The test number must be paired again (the incident logged it out). Then a live check: run `pnpm test` while the dev stack is connected and confirm the dev worker stays `connected`.

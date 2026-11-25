@@ -85,6 +85,10 @@ async function connected(options: Parameters<typeof startTestWorker>[1] = {}): P
   return w;
 }
 
+// WA-28: "another database" is db 9, which nothing uses. Never db 0: that is the dev stack, and a
+// command published there reaches a live worker (WA Decision 43).
+const OTHER_DB = 9;
+
 const MAIN = fileURLToPath(new URL('./main.ts', import.meta.url));
 const ACQUIRED = 'WhatsApp lock acquired';
 const STANDBY = 'standby, another worker holds the WhatsApp lock';
@@ -373,8 +377,8 @@ describe('channel isolation', () => {
   it('WA-28 a worker acts only on commands from its own Redis database', async () => {
     expect(redis.options.db).toBe(2);
     const w = await connected();
-    // The dev api on db 0, and the old channel name every database shared before the fix.
-    await sendCommand(redis, 'logout', waChannels(0).commands);
+    // Another database's api, and the old channel name every database shared before the fix.
+    await sendCommand(redis, 'logout', waChannels(OTHER_DB).commands);
     await sendCommand(redis, 'logout', 'wa:commands');
     await pause(300);
     expect(w.fake.logoutCalls).toBe(0);
@@ -388,7 +392,7 @@ describe('channel isolation', () => {
     const other = createRedis(TEST_REDIS_URL);
     const heard: string[] = [];
     other.on('message', (channel: string) => heard.push(channel));
-    await other.subscribe(waChannels(0).events, waChannels(1).events, 'crm:events');
+    await other.subscribe(waChannels(OTHER_DB).events, waChannels(1).events, 'crm:events');
     try {
       const w = start();
       await waitFor(() => w.fake.connected);
