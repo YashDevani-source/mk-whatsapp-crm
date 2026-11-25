@@ -119,7 +119,7 @@ Proposed, applied during the FND build in the order spec, test, code:
 - Its test sets `DATABASE_URL` to `crm_test`.
 - BOOT's "Overlap with FND" gets a one-line pointer to this spec.
 
-Approved by the user on 2026-11-25 (Decision 6). Not applied yet. It is applied during the FND build.
+Approved by the user on 2026-11-25 (Decision 6). The wording was applied in phase 1, and the test change in phase 3.
 
 ## Proposed changes
 
@@ -173,3 +173,11 @@ Made during FND phase 2 (2026-11-25), within the approved build plan:
 20. Health: `SELECT 1` and `PING` run in parallel, each bounded by `HEALTH_CHECK_TIMEOUT_MS` = 2000 (a constant, not env). The api does not wait for Postgres or Redis at startup; `/health` reports them. Redis connection errors are logged by error code only, once per outage, because URLs can hold passwords. `/health` is a plain route until phase 4 adds the FND-13 guard, which declares it `public`.
 21. `@crm/db` exports `createDb(databaseUrl)` (Prisma client with the pg adapter and a 2 s connect timeout) and the `Db` type. The api's Redis client is `createRedis(url)` in `apps/api/src/redis.ts` (ioredis, `maxRetriesPerRequest: 1`, 2 s connect timeout). Phase 3 (seed) and phase 4 (sessions) reuse them.
 22. The api and worker entry files are `src/main.ts`, renamed from the BOOT placeholder `src/dev.ts`. Startup lines: `@crm/api listening on port <PORT>` and `@crm/worker started`. Neither prints a URL or a secret. `apps/web` keeps its `src/dev.ts` placeholder until a web spec.
+
+Made during FND phase 3 (2026-11-25), within the approved build plan:
+
+23. `pnpm migrate` runs `packages/db/src/migrate.ts`. It validates a new `MigrateEnv` contract (`DATABASE_URL` only) with `parseEnv`, then runs `prisma migrate deploy` and exits with Prisma's status. A missing or invalid URL is named and never printed, the same as FND-01. `migrate` does not refuse production; deploying migrations is what production needs.
+24. The first migration is `packages/db/prisma/migrations/20261125145958_init/`, created with `prisma migrate dev --create-only --name init` against `crm_dev`. Later specs add their own migration with the same command and `--name <area>-<change>`. Unique constraints are Prisma's unique indexes, named `<table>_<column>_key` (for example `users_email_key`).
+25. Seed: one user per role (`superadmin@crm.test`, `manager@crm.test`, `employee@crm.test`), each with its own argon2id hash of `SEED_PASSWORD`, and two test contacts with fictional numbers `+12025550101` and `+12025550102`. Users and contacts are upserted by email and phone with an empty `update`, so a second run writes nothing. The production check runs before any database connection. Seed prints counts only, never the password.
+26. The db `migrate` and `seed` scripts load the root `.env` with `--env-file-if-exists=../../.env`, the same as the api and worker `dev` scripts (Decision 17). Tests that spawn them set every `MigrateEnv` and `SeedEnv` key explicitly, so `.env` cannot change their result.
+27. Test database: the db tests share `crm_test` and run with `fileParallelism: false`. FND-04 starts from `DROP SCHEMA public CASCADE`; the FND-05 and FND-06 files migrate and then truncate. Helpers live in `packages/db/src/test-support.ts`, which is not exported. FND-05 uses raw SQL through `pg`. `pnpm -r test` runs packages in dependency order, so the db tests finish before the api tests, which also use `crm_test`. This was checked in the phase 3 test log.

@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phases 1 (packages, contracts, placeholder tests) and 2 (env validation, `GET /health`, `.env.example`) are done. There are still no product features, no login and no UI. `pnpm dev` starts the api (only `/health` so far) and placeholder web and worker processes.
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phases 1 (packages, contracts, placeholder tests), 2 (env validation, `GET /health`, `.env.example`) and 3 (database migration, unique constraints, seed) are done. There are still no product features, no login and no UI. `pnpm dev` starts the api (only `/health` so far) and placeholder web and worker processes.
 
 ## What we did in session 1
 
@@ -29,6 +29,8 @@ Full detail, including what was authorised and what is still open: [docs/history
 pnpm install                    # install all workspace packages
 docker compose up -d --wait     # Postgres 16 and Redis 7, wait until healthy
 cp .env.example .env            # then fill in the two secrets (see below)
+pnpm migrate                    # create the tables in crm_dev
+pnpm seed                       # one user per role and two test contacts
 pnpm dev                        # starts web, api and worker
 curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 ```
@@ -40,6 +42,14 @@ curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 
 Until both are set, the api and worker refuse to start and name the missing variables. Every variable is explained in `.env.example`. A variable set in your shell overrides the file.
 
+Seeded users (dev only). Every user has the password `SEED_PASSWORD`, which defaults to `crm-dev-password`. Seed refuses to run when `NODE_ENV=production`. Login arrives in FND phase 4.
+
+| Role        | Email                 |
+| ----------- | --------------------- |
+| Super Admin | `superadmin@crm.test` |
+| Manager     | `manager@crm.test`    |
+| Employee    | `employee@crm.test`   |
+
 | Service  | Host port | Notes                                                                                                     |
 | -------- | --------- | --------------------------------------------------------------------------------------------------------- |
 | Postgres | 5433      | user `crm`, password `crm` (dev only); databases `crm_dev` and `crm_test`. Override with `POSTGRES_PORT`. |
@@ -49,17 +59,17 @@ Stop the services with `docker compose down` (add `-v` to delete the database vo
 
 ## Commands
 
-| Command             | What it does                                                                           |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| `pnpm install`      | Install dependencies                                                                   |
-| `pnpm dev`          | Start web, api and worker together (reads the root `.env`)                             |
-| `pnpm test`         | Repo-level tests (`tests/bootstrap`) plus every package's tests. Needs Docker running. |
-| `pnpm typecheck`    | `tsc --noEmit` for the root and all five packages                                      |
-| `pnpm lint`         | ESLint, plus the dependency-direction check                                            |
-| `pnpm migrate`      | Placeholder until the schema exists (FND)                                              |
-| `pnpm seed`         | Placeholder until the schema exists (FND)                                              |
-| `pnpm traceability` | Lists spec criterion IDs that no test title starts with                                |
-| `pnpm format`       | Format with Prettier (`format:check` only checks)                                      |
+| Command             | What it does                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `pnpm install`      | Install dependencies                                                                    |
+| `pnpm dev`          | Start web, api and worker together (reads the root `.env`)                              |
+| `pnpm test`         | Repo-level tests (`tests/bootstrap`) plus every package's tests. Needs Docker running.  |
+| `pnpm typecheck`    | `tsc --noEmit` for the root and all five packages                                       |
+| `pnpm lint`         | ESLint, plus the dependency-direction check                                             |
+| `pnpm migrate`      | Apply pending Prisma migrations (`prisma migrate deploy`); a second run applies nothing |
+| `pnpm seed`         | Create the seeded users and test contacts; safe to rerun; refuses production            |
+| `pnpm traceability` | Lists spec criterion IDs that no test title starts with                                 |
+| `pnpm format`       | Format with Prettier (`format:check` only checks)                                       |
 
 ## Layout
 
@@ -68,7 +78,7 @@ apps/web         React app (placeholder)
 apps/api         Express + Socket.io API (placeholder)
 apps/worker      WhatsApp worker; the only place Baileys may be imported (placeholder)
 packages/shared  Zod schemas, types, events, provider interface, permissions
-packages/db      Prisma schema and client (placeholder)
+packages/db      Prisma schema, migrations, client, migrate and seed scripts
 scripts/         Traceability and dependency-graph scripts, shared contracts
 tests/bootstrap  Tests for the Spec 0 criteria
 docs/            Plans, specs, data flow, session history
@@ -93,5 +103,5 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- FND is in progress: phases 1 and 2 of 5 done. Next is phase 3, the database (migrate, constraints, seed).
+- FND is in progress: phases 1 to 3 of 5 done. Next is phase 4, auth and permissions over HTTP.
 - See [docs/history/](docs/history/README.md) for the full open-items list.

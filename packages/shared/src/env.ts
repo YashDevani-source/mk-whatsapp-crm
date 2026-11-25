@@ -39,6 +39,12 @@ export const WorkerEnv = z.object({
 });
 export type WorkerEnv = z.infer<typeof WorkerEnv>;
 
+// `pnpm migrate` only: Prisma reads the URL through prisma.config.ts (FND-04).
+export const MigrateEnv = z.object({
+  DATABASE_URL: PostgresUrl,
+});
+export type MigrateEnv = z.infer<typeof MigrateEnv>;
+
 // Seed only. The default is a documented dev password; seed refuses to run in production (FND-06).
 export const SEED_PASSWORD_DEV_DEFAULT = 'crm-dev-password';
 export const SeedEnv = z.object({

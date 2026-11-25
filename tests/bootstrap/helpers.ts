@@ -12,12 +12,19 @@ export interface RunResult {
   output: string;
 }
 
-export function run(cmd: string, args: string[], cwd: string = ROOT): RunResult {
-  const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', timeout: 110_000 });
+// `env` replaces the inherited environment when given.
+export function run(
+  cmd: string,
+  args: string[],
+  cwd: string = ROOT,
+  env?: NodeJS.ProcessEnv,
+): RunResult {
+  const r = spawnSync(cmd, args, { cwd, env, encoding: 'utf8', timeout: 110_000 });
   return { status: r.status, output: `${r.stdout ?? ''}${r.stderr ?? ''}` };
 }
 
-export const pnpm = (args: string[], cwd: string = ROOT): RunResult => run('pnpm', args, cwd);
+export const pnpm = (args: string[], cwd: string = ROOT, env?: NodeJS.ProcessEnv): RunResult =>
+  run('pnpm', args, cwd, env);
 
 export function runScript(script: string, args: string[]): RunResult {
   expectFile(script);

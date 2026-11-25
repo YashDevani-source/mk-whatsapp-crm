@@ -11,8 +11,8 @@
     "generate": "prisma generate",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=verbose",
-    "migrate": "node src/migrate.ts",
-    "seed": "node src/seed.ts"
+    "migrate": "node --env-file-if-exists=../../.env src/migrate.ts",
+    "seed": "node --env-file-if-exists=../../.env src/seed.ts"
   },
   "dependencies": {
     "@crm/shared": "workspace:*",

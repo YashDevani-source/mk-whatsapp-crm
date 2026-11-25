@@ -7,18 +7,19 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25, end of FND phase 2)
-- **Done:** Spec 0 (`BOOT`) is implemented. Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) is **approved**. FND phases 1 and 2 of 5 are done:
+## Current state (updated 2026-11-25, end of FND phase 3)
+- **Done:** Spec 0 (`BOOT`) is implemented. Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) is **approved**. FND phases 1 to 3 of 5 are done:
   - Phase 1: contracts and test skeleton.
   - Phase 2: config and health (FND-01, 02, 03, 19). The api and worker validate env at boot (`parseEnv` in `packages/shared/src/env.ts`) and exit naming each bad variable. The api serves `GET /health` (Postgres `SELECT 1` and Redis `PING`, 2 s each). `.env.example` exists.
-- **Tests:** `pnpm test` gives 94 passed and 18 `it.todo`.
-  - Passed: 76 root tests (75 BOOT + FND-19) and 18 package tests.
-  - Todo: BOOT-09 and BOOT-16 (manual), plus 16 FND placeholders.
+  - Phase 3: database (FND-04, 05, 06, BOOT-15 test). Migration `init` creates the six tables and unique indexes. `pnpm migrate` checks `MigrateEnv`, then runs `prisma migrate deploy`. `pnpm seed` upserts one argon2id user per role plus 2 test contacts, and refuses production. `crm_dev` is migrated and seeded.
+- **Tests:** `pnpm test` gives 103 passed and 15 `it.todo`.
+  - Passed: 76 root tests (75 BOOT + FND-19) and 27 package tests.
+  - Todo: BOOT-09 and BOOT-16 (manual), plus 13 FND placeholders.
   - typecheck, lint, format:check and traceability pass.
-- **Not built:** migration, seed data, auth, the route guard, sockets and UI. `migrate` and `seed` are still placeholders. `/health` is not yet behind the FND-13 guard (phase 4 declares it `public`).
-- **Build plan for FND (5 phases, stop after each, one local commit per phase):** 1 contracts and test skeleton (done) · 2 config and health (done) · 3 database: migrate, constraints, seed (FND-04, 05, 06, BOOT-15 test) · 4 auth and permissions over HTTP (FND-07 to 14, 18) · 5 sockets, manual check, close FND (FND-15, 16, 17, 20).
-- **Next:** FND phase 3, after the user's go-ahead. Reuse `createDb` from `@crm/db` (FND Decision 21).
-- **Open FND placeholders:** 16 of 20 criteria are still `it.todo` (FND-04 to 18, and 20). Traceability counts a todo as covered, so check this count, not just `pnpm traceability`.
+- **Not built:** auth, the route guard, sockets and UI. `/health` is not yet behind the FND-13 guard (phase 4 declares it `public`).
+- **Build plan for FND (5 phases, stop after each, one local commit per phase):** 1 contracts and test skeleton (done) · 2 config and health (done) · 3 database: migrate, constraints, seed (done) · 4 auth and permissions over HTTP (FND-07 to 14, 18) · 5 sockets, manual check, close FND (FND-15, 16, 17, 20).
+- **Next:** FND phase 4, after the user's go-ahead. Reuse `createDb` and `createRedis` (FND Decision 21). Auth tests create their own users in `crm_test`, because the db tests truncate it.
+- **Open FND placeholders:** 13 of 20 criteria are still `it.todo` (FND-07 to 18, and 20). Traceability counts a todo as covered, so check this count, not just `pnpm traceability`.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
 - Session notes: `docs/history/`.
 
@@ -30,7 +31,8 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - Dev (web + api + worker): `pnpm dev` (api on port 4000; `curl localhost:4000/health`)
 - Test: `pnpm test` (root tests in `tests/` + every package's tests)
 - Typecheck: `pnpm typecheck`. Lint: `pnpm lint` (ESLint + dependency-direction check)
-- Migrate / seed: `pnpm migrate`, `pnpm seed` (placeholders until FND)
+- Migrate / seed: `pnpm migrate`, `pnpm seed` (both load the root `.env`, so they target `crm_dev`). Seeded logins are `superadmin@`, `manager@` and `employee@crm.test`, with password `SEED_PASSWORD` (default `crm-dev-password`).
+- New migration (later specs): in `packages/db`, run `DATABASE_URL=<crm_dev url> pnpm exec prisma migrate dev --create-only --name <area>-<change>`, review the SQL, then `pnpm migrate` (FND Decision 24).
 - Traceability: `pnpm traceability`. Format: `pnpm format` / `pnpm format:check`
 
 ## Layout
@@ -39,7 +41,7 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - `tests/bootstrap/`: tests for the BOOT criteria. `tests/foundation/`: repo-level FND tests (FND-19).
 - FND tests live next to the code they test: `apps/api/src/*.test.ts`, `apps/worker/src/boot.test.ts`, `packages/db/src/*.test.ts`, `packages/shared/src/{env,permissions}.test.ts`.
 - Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps)`, used by tests through supertest), `health.ts` and `redis.ts`. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. `apps/web/src/dev.ts` is still the BOOT placeholder.
-- `packages/db/prisma/` holds `schema.prisma` (later `migrations/`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
+- `packages/db/prisma/` holds `schema.prisma` and `migrations/` (`20261125145958_init`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. `packages/db/src/{migrate,seed}.ts` are the script entries. `src/test-support.ts` holds the crm_test helpers for the db tests (not exported). The db tests run files serially. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
 - `docs/`: `plan/` (source documents), `specs/`, `data-flow/`, `history/`.
 
 ## Conventions in force
@@ -97,7 +99,6 @@ If a spec is wrong: update the spec, then the test, then the code. Write decisio
 - Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
 - Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
 - Specs for every module after FND (WA, MSG, INB, …) are unwritten. The minimal login page is a WA criterion (FND Decision 4).
-- BOOT-15's test still runs `migrate`/`seed` with no env; it is pointed at `crm_test` in FND phase 3 (FND Decision 6, BOOT Decision 10).
 - CI (`.github/workflows/ci.yml`) has not run; needs a GitHub repo.
 - pnpm skips the install scripts of `prisma` and `@prisma/engines`; the Prisma CLI fetches its schema engine on first use. Check this on the first CI run.
 - Suggested but not specced: CI check for the exact Baileys version pin, struck-through and duplicate IDs in traceability, `format:check` in CI.
