@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** only Spec 0 (the project skeleton and spec tooling) is built. There are no product features, no HTTP routes and no UI yet. `pnpm dev` starts three placeholder processes.
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phase 1 is done (packages, contracts, placeholder tests). There are still no product features, no HTTP routes and no UI. `pnpm dev` starts three placeholder processes.
 
 ## What we did in session 1
 
@@ -73,16 +73,16 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 
 ## Docs
 
-| Where                                       | What                                                       |
-| ------------------------------------------- | ---------------------------------------------------------- |
-| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow |
-| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md` is approved)    |
-| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (planned)         |
-| [docs/history/](docs/history/README.md)     | Session notes                                              |
-| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session      |
+| Where                                       | What                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                                   |
+| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md` built, `001-foundation.md` approved, in progress) |
+| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (planned)                                           |
+| [docs/history/](docs/history/README.md)     | Session notes                                                                                |
+| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                                        |
 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- Next spec to write: FND (auth, roles, env validation, schema, seed).
-- See [docs/history/2026-11-25-session-1.md](docs/history/2026-11-25-session-1.md) for the full open-items list.
+- FND is in progress: phase 1 of 5 done. Next is phase 2, config and `/health`.
+- See [docs/history/](docs/history/README.md) for the full open-items list.

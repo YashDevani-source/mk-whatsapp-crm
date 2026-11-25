@@ -1,4 +1,4 @@
-Status: draft
+Status: approved
 
 # Spec 1: Foundation, auth, roles, config (FND)
 
@@ -153,4 +153,14 @@ All recommendations accepted by the user on 2026-11-25.
 6. BOOT-15 is reworded and its test pointed at `crm_test`, as described under "Changes to BOOT". It is applied during the FND build, in the order spec, test, code.
 7. Env variable names and the FND permission set (`auth.session`, `users.manage`, `wa.manage`) are as listed under Contracts touched.
 8. FND-20 (disconnect sockets on logout or deactivation) is a Should.
-9. The dev plan's FND numbers were placeholders. This spec numbers from FND-01, and the dev plan is not edited unless the user asks.
+9. The dev plan's FND numbers were placeholders. This spec numbers from FND-01. Updated in phase 1: the user asked for all docs to be kept current, so `development-plan.md` §3 now has a one-line note pointing here. Its old numbers are not rewritten.
+
+Made during FND phase 1 (2026-11-25), within the approved 5-phase build plan:
+
+10. Sessions use a small Redis store, not express-session. `sess:<id>` holds a `SessionRecord` (`userId`, `role`, `createdAt`) with a TTL of `SESSION_TTL_SECONDS`. `user-sess:<userId>` is the set of that user's session IDs, so logout and deactivation can end all of them (FND-20). The login rate limit is `INCR` plus `EXPIRE` on `login-fail:<email>`.
+11. Package versions, pinned exactly: zod 4.6.7; prisma, @prisma/client and @prisma/adapter-pg 7.10.1; pg 8.23.1; argon2 0.45.2; express 5.3.0; socket.io and socket.io-client 4.8.4; ioredis 6.1.0; supertest 7.3.2. Prisma is on stable 7.10.1, because npm's `latest` tag for `prisma` points at 8.0.0-rc.35.
+12. Prisma setup: the `prisma-client` generator (ESM, `importFileExtension = "ts"`) writes to `packages/db/src/generated/prisma/`. That folder is gitignored and ignored by ESLint and Prettier, and `@crm/db`'s `postinstall` regenerates it. A spike confirmed the client runs under `node file.ts` (type stripping) with the pg driver adapter against Compose Postgres, and that argon2's prebuilt binary loads. `prisma.config.ts` reads `DATABASE_URL` from the environment and allows it to be unset for `prisma generate`.
+13. Schema details within Decision 2: UUID ids; snake_case tables and columns via `@@map`/`@map` (`users`, `contacts`, `conversations`, `messages`, `whatsapp_sessions`, `audit_logs`); `Message.direction` is an enum `INBOUND | OUTBOUND`; `WhatsAppSession.encryptedCreds` is text (WA may change the format).
+14. Env additions within Decision 7: `NODE_ENV` (`development` | `test` | `production`, default `development`) for all three schemas, and `PORT` (default 4000) for the api. Tunables have defaults: `SESSION_TTL_SECONDS` 43200, `LOGIN_MAX_ATTEMPTS` 5, `LOGIN_WINDOW_SECONDS` 900, `SEED_PASSWORD` `crm-dev-password`. `ALLOWED_ORIGINS` is a comma-separated list of URLs.
+15. `LoginRequest.email` is trimmed and lower-cased before validation, so the rate limit (FND-09) and the user lookup are case-insensitive.
+16. Socket handshake auth uses the same session cookie as HTTP, so there is no separate handshake payload type. Room names are the `ROOMS` constant plus `user:<id>` (`packages/shared/src/rooms.ts`).

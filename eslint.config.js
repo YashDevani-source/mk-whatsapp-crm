@@ -51,7 +51,7 @@ const restrictImport = {
 const boundaries = { rules: { 'restrict-import': restrictImport } };
 
 export default [
-  { ignores: ['**/node_modules/**', '**/dist/**'] },
+  { ignores: ['**/node_modules/**', '**/dist/**', 'packages/db/src/generated/**'] },
   ...tseslint.configs.recommended,
   { rules: { '@typescript-eslint/no-explicit-any': 'error' } },
   {

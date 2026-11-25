@@ -1,0 +1,87 @@
+// FND contracts (docs/specs/001-foundation.md, "Contracts touched"). Minimal columns only (Decision 2):
+// later specs add columns by migration. Tables and columns are snake_case in Postgres.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SUPER_ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  name         String
+  passwordHash String     @map("password_hash")
+  role         Role
+  active       Boolean    @default(true)
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Contact {
+  id           String        @id @default(uuid()) @db.Uuid
+  phone        String        @unique // E.164
+  name         String?
+  isTest       Boolean       @default(false) @map("is_test")
+  conversation Conversation?
+
+  @@map("contacts")
+}
+
+model Conversation {
+  id        String    @id @default(uuid()) @db.Uuid
+  contactId String    @unique @map("contact_id") @db.Uuid
+  contact   Contact   @relation(fields: [contactId], references: [id])
+  messages  Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id                String           @id @default(uuid()) @db.Uuid
+  conversationId    String           @map("conversation_id") @db.Uuid
+  conversation      Conversation     @relation(fields: [conversationId], references: [id])
+  // Null until the provider returns an ID (outbound messages are saved as queued first).
+  providerMessageId String?          @unique @map("provider_message_id")
+  direction         MessageDirection
+
+  @@map("messages")
+}
+
+model WhatsAppSession {
+  id             String @id @default(uuid()) @db.Uuid
+  number         String @unique
+  encryptedCreds String @map("encrypted_creds")
+
+  @@map("whatsapp_sessions")
+}
+
+// Insert-only from application code (enforced in AUD).
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String?  @map("actor_id") @db.Uuid
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  ip        String?
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}

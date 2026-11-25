@@ -83,6 +83,8 @@ flowchart LR
 
 **Build order inside the phase** (each step unblocks the next):
 
+> Note (2026-11-25): the `FND-NN` numbers below were placeholders. The real FND criteria are in [`docs/specs/001-foundation.md`](../specs/001-foundation.md) (FND-01 to FND-20), and the repo, TypeScript, lint and Compose parts of step 1 are covered by BOOT-01 to BOOT-09 in `000-bootstrap.md`.
+
 1. **Repo and infrastructure** — monorepo, strict TypeScript, lint rule banning `any`, Docker Compose for Postgres + Redis, env validation with Zod, `/health`. (`FND-01`, `02`, `12`)
 2. **Schema and seed** — User, Contact, Conversation, Message, WhatsAppSession, AuditLog; seed with one user per role and test contacts. (`FND-03`, `04`)
 3. **Provider interface + fake provider** — the boundary every WhatsApp-facing test uses. (`WA-01`, `02`)

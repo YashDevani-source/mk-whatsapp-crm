@@ -43,7 +43,7 @@ After this spec is built, a fresh clone installs, typechecks, lints, tests and r
 | BOOT-12 | `pnpm traceability` prints every criterion ID found in `docs/specs/*.md` whose spec status is not `draft` and for which no test title starts with that ID, and exits non-zero if the list is non-empty. A spec with `Status: draft` is ignored. An ID that appears only in the middle of a test title does not count as covered. An `it.todo` title that starts with the ID counts as covered (this is how manual criteria such as BOOT-09 and BOOT-16 are traced). | Must | Test (fixture specs and tests) |
 | BOOT-13 | The CI workflow runs on push and pull request, with separate named steps in this order: install, typecheck, lint, test, traceability. A failing step stops the later ones. | Must | Test (parse the workflow file) + manual (first push to GitHub) |
 | BOOT-14 | Root `package.json` defines `dev`, `test`, `typecheck`, `lint`, `migrate`, `seed` and `traceability` scripts (install is `pnpm install`). Each exits 0 or starts successfully on the skeleton. | Must | Test |
-| BOOT-15 | On an empty schema (no models), `pnpm migrate` and `pnpm seed` each exit 0 against the Compose Postgres. | Should | Integration test |
+| BOOT-15 | `pnpm migrate` and `pnpm seed` each exit 0 against the Compose `crm_test` database. (Reworded 2026-11-25, see Decision 10. Was: "On an empty schema (no models), `pnpm migrate` and `pnpm seed` each exit 0 against the Compose Postgres.") | Should | Integration test |
 | BOOT-16 | `pnpm dev` starts web, api and worker together. Each prints a startup line, and stopping the command stops all three. | Should | Manual |
 | BOOT-17 | `pnpm format:check` exits non-zero when a tracked file is not Prettier-formatted, and exits 0 after `pnpm format`. | Could | CI script |
 
@@ -92,6 +92,8 @@ Changes to your defaults. They are not in the criteria yet.
 The existing root `package.json` already pins `pnpm@10.13.1`. I propose keeping it.
 
 ## Overlap with FND
+**Resolved 2026-11-25:** FND is `docs/specs/001-foundation.md`. Its "Overlap with BOOT" section is the reference: BOOT-01 to BOOT-09 cover the monorepo, strict TypeScript, the `any` ban and Compose, and FND numbers its own criteria from FND-01. The text below is the original note, kept for history.
+
 `docs/specs/FND.md` does not exist yet, so I could not check this. From the topics in `docs/plan/development-plan.md` §3 step 1 ("monorepo, strict TypeScript, lint rule banning `any`, Docker Compose for Postgres + Redis, env validation with Zod, `/health`. (`FND-01`, `02`, `12`)"), the likely overlap is:
 
 - Monorepo, strict TypeScript, the `any` ban and Docker Compose are covered by BOOT-01 to BOOT-09. Proposed wording for the matching FND criteria: "moved to BOOT-NN (Spec 0)", where NN is the covering criterion.
@@ -118,3 +120,4 @@ Defaults used when the spec was drafted (2026-11-25). All accepted when the spec
 7. Manual criteria are traced with `it.todo` titles (BOOT-12 wording above).
 9. Host ports (2026-11-25): Postgres is published on 5433 (overridable with `POSTGRES_PORT`) because 5432 was already in use on the dev machine. Redis stays on 6379 (`REDIS_PORT`).
 8. Node 24 LTS, with the major pinned. Still to confirm at build time: whether Node 26 has become LTS.
+10. BOOT-15 reworded (2026-11-25, approved by the user as FND Decision 6). FND makes `migrate` and `seed` real and adds env validation, so "empty schema" no longer holds and the test must not touch `crm_dev` (BOOT-10). The test change (`DATABASE_URL` set to `crm_test`) lands in FND phase 3, together with the real commands.
