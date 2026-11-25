@@ -1,6 +1,13 @@
 // Calls to the api through the Vite proxy (same origin). The session cookie is httpOnly, so the
 // page never sees it; the browser sends it with every request.
-import { SessionUser } from '@crm/shared';
+import {
+  ApiError,
+  ConversationList,
+  MessageList,
+  MessageView,
+  SessionUser,
+  type ConversationSummary,
+} from '@crm/shared';
 
 const json = { 'Content-Type': 'application/json' };
 
@@ -35,4 +42,42 @@ export async function requestNewQr(): Promise<number> {
 
 export async function logoutWhatsApp(): Promise<number> {
   return (await fetch('/wa/logout', { method: 'POST' })).status;
+}
+
+// MSG-08: the conversation list and one conversation's messages. Undefined when the call fails.
+export async function listConversations(): Promise<ConversationSummary[] | undefined> {
+  const res = await fetch('/conversations');
+  if (!res.ok) return undefined;
+  const parsed = ConversationList.safeParse(await res.json());
+  return parsed.success ? parsed.data.conversations : undefined;
+}
+
+export async function listMessages(conversationId: string): Promise<MessageView[] | undefined> {
+  const res = await fetch(`/conversations/${conversationId}/messages`);
+  if (!res.ok) return undefined;
+  const parsed = MessageList.safeParse(await res.json());
+  return parsed.success ? parsed.data.messages : undefined;
+}
+
+export type SendResult =
+  { ok: true; message: MessageView } | { ok: false; status: number; error?: string };
+
+// MSG-09, MSG-13: `clientId` makes a repeated request return the first message.
+export async function sendMessage(
+  conversationId: string,
+  text: string,
+  clientId: string,
+): Promise<SendResult> {
+  const res = await fetch(`/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    headers: json,
+    body: JSON.stringify({ text, clientId }),
+  });
+  const body: unknown = await res.json().catch(() => undefined);
+  if (res.status === 200 || res.status === 202) {
+    const parsed = MessageView.safeParse(body);
+    if (parsed.success) return { ok: true, message: parsed.data };
+  }
+  const error = ApiError.safeParse(body);
+  return { ok: false, status: res.status, ...(error.success ? { error: error.data.error } : {}) };
 }

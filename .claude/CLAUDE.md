@@ -7,7 +7,7 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-26 session 8, MSG phase 4 of 5 done)
+## Current state (updated 2026-11-26 session 8, MSG built; MSG-28 phone check pending)
 - **Done:** Spec 0 (`BOOT`), Spec 1 (`FND`, 20 criteria) and Spec 2 (`WA`, `docs/specs/002-whatsapp.md`, 27 criteria) are built. History: `docs/history/2026-11-25-fnd-phase-*.md`, `…-wa-spec-draft.md`, `…-wa-phase-*.md`.
   - FND: env validation (`parseEnv`), `GET /health`, migration `init` and seed, login with signed `crm_sid` cookie and Redis sessions, `PERMISSION_MAP`/`can()`, the `access(level)` route guard, authenticated sockets with server-assigned rooms (`roomsFor`), logout/deactivation disconnects. FND Decisions 1 to 42.
   - WA worker (`apps/worker/src/`): `connection.ts` (`startWaWorker`: lock, states, backoff, commands, audit), `lock.ts` (`wa:lock`, Lua owner checks), `session-store.ts` + `crypto.ts` (AES-256-GCM, AAD per row), `providers/fake/fake.ts`, `providers/baileys/index.ts` (pinned `baileys` 7.0.0-rc14, connection only), `providers/index.ts` (`createProvider`). Migration `wa-session` (provider column, nullable number, `whatsapp_session_keys`).
@@ -15,7 +15,7 @@
   - WA web (`apps/web`): Vite + React 19, no router. Login page, Super Admin connection page with QR, home placeholder, banner with "Simulated" tag. Vite proxy for `/auth`, `/wa`, `/health`, `/socket.io` on port 5173.
   - Contracts: `packages/shared/src/wa.ts` (`WaState`, `WaQr`, `CrmEvent`, `WaCommand`, `WA_REDIS`, `EVENTS_CHANNEL`, `WhatsAppProvider`, `ProviderAuthStore`). `WorkerEnv` adds `WHATSAPP_PROVIDER` (default `fake`), `WA_LOCK_TTL_MS`, `WA_RECONNECT_BASE_MS`, `WA_RECONNECT_MAX_MS`.
 - **WA-27 passed** with the real test phone (WA Decision 42): QR scan, restart without QR, network drop and recovery, unlink from the phone and re-pair. "Log out WhatsApp" now needs a confirmation click (WA-24, Decision 41). The Phase 1 checkpoint's restart part is proven; its message part needs MSG.
-- **Tests:** `pnpm test` gives 216 passed and 9 `it.todo`: BOOT-09, BOOT-16, the manual WA-23, WA-24, WA-27, and MSG-24, MSG-25, MSG-27, MSG-28. Api test files now run one at a time too (MSG Decision 35).
+- **Tests:** `pnpm test` gives 230 passed and 7 `it.todo`: BOOT-09, BOOT-16, and the manual WA-23, WA-24, WA-27, MSG-24 (browser), MSG-28. Api test files now run one at a time too (MSG Decision 35).
   - typecheck, lint, format:check and traceability pass.
   - Package tests run one package at a time (`--workspace-concurrency=1`): the packages share `crm_test`. Api tests use Redis db 1, worker tests Redis db 2, dev uses db 0. Pub/sub channels carry the db number (`waChannels(db)`, WA-28): Redis pub/sub is shared by all databases, and before this fix a test run logged out the live dev session (WA Decision 43).
   - Worker tests: in-process managers with short timings, plus spawned `main.ts` for the kill/SIGTERM lock tests (WA-03, WA-05).
@@ -24,7 +24,8 @@
   - Phase 2 done: `apps/worker/src/messages.ts` (inbound store, dedupe, publish), mappers in `packages/db/src/views.ts`, `skipped` provider event, Fake `receive`/`skip`/`receiveOnOldConnection`, `resetMessages` (test contacts use `+1999…`).
   - Phase 3 done: `apps/api/src/messages.ts` (`GET /conversations`, `GET /conversations/:id/messages`, `POST /conversations/:id/messages`), `queue.ts` (BullMQ `outbound-message`), `pushEvent` room choice in `sockets.ts` (MSG events to `inbox:all` only), `SocketControl.push`. New `ApiError` codes `wa_not_connected`, `queue_unavailable`.
   - Phase 4 done: `nextStatus` in `packages/shared/src/messages.ts`; `apps/worker/src/send.ts` (BullMQ processor, started on `open`, stopped before the provider closes; each send runs in the connection manager's in-order queue, MSG Decision 37); status reports in `messages.ts`; Fake `sendText`/`failSends`/`delaySends`/`echoNextSend`/`report`.
-- **Next:** MSG phase 5 (the user asked for all phases, a commit per phase). Phase 5 ends at the manual MSG-28 phone check, which needs the user.
+  - Phase 5 done: Baileys messages/receipts/`sendText` (`providers/baileys/helpers.ts`), web Messages tab (`messages-page.tsx`, `useMessages.ts`, `messages-view.ts`), Managers land on messages (WA-23 changed, MSG Decision 45).
+- **Next:** the MSG-28 check with the real phone (`WHATSAPP_PROVIDER=baileys pnpm dev`), then close MSG and the Phase 1 checkpoint. Was: MSG phase 5 (the user asked for all phases, a commit per phase). Phase 5 ends at the manual MSG-28 phone check, which needs the user.
 - **Dev stack is stopped.** The test number stays linked: `WHATSAPP_PROVIDER=baileys pnpm dev` reconnects without a QR (the `BAILEYS` session is in `crm_dev`). Plain `pnpm dev` uses the Fake provider and does not touch the real session.
 - `crm_dev` holds a `FAKE` session row, a live `BAILEYS` session for the test number, and `wa.*` audit rows from the checks.
 - `pnpm test` is safe to run while the dev stack is connected (proved live, WA Decision 43). Tests must never use Redis db 0: not for keys, not for publishing, not for listening.

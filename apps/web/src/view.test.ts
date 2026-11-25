@@ -7,9 +7,10 @@ function state(s: WaState['state'], extra: Partial<WaState> = {}): WaState {
 }
 
 describe('login page', () => {
-  it('WA-23 a Super Admin lands on the connection page and the other roles on the home page', () => {
+  it('WA-23 a Super Admin lands on the connection page, a Manager on messages, an Employee on home', () => {
     expect(viewFor('SUPER_ADMIN')).toBe('connection');
-    expect(viewFor('MANAGER')).toBe('home');
+    // MSG Decision 45: Managers have the messages page from MSG on.
+    expect(viewFor('MANAGER')).toBe('messages');
     expect(viewFor('EMPLOYEE')).toBe('home');
   });
 

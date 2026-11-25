@@ -142,3 +142,157 @@ button.danger {
 .confirm button + button {
   margin-left: 0.6rem;
 }
+
+/* MSG-24: tabs and the messages page. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1.25rem 0;
+}
+
+.tab.active {
+  background: #1d2733;
+  color: white;
+  border-color: #1d2733;
+}
+
+.messages {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  min-height: 70vh;
+}
+
+.conversation-list ul,
+.bubbles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  margin-bottom: 0.4rem;
+  text-align: left;
+}
+
+.conversation.active {
+  border-color: #1d2733;
+  background: #eef2f6;
+}
+
+.preview {
+  color: #5b6875;
+  font-size: 0.85rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border: 1px solid #dde3e9;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.chat h2 {
+  margin-top: 0;
+}
+
+.bubbles {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+
+.bubble {
+  max-width: 70%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+}
+
+.bubble-inbound {
+  align-self: flex-start;
+  background: #f0f2f5;
+}
+
+.bubble-outbound {
+  align-self: flex-end;
+  background: #dcf3e4;
+}
+
+.bubble-sender {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #3d5566;
+}
+
+.bubble-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble-body.unsupported {
+  font-style: italic;
+  color: #5b6875;
+}
+
+.bubble-meta {
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  font-size: 0.75rem;
+  color: #5b6875;
+}
+
+.tick-read {
+  color: #1f7ae0;
+}
+
+.tick-failed,
+.bubble-failed {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.bubble-failed {
+  font-size: 0.8rem;
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #1f4f8a;
+  text-decoration: underline;
+}
+
+.compose {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.compose textarea {
+  flex: 1;
+  font: inherit;
+  padding: 0.5rem;
+  border: 1px solid #b8c2cc;
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.muted {
+  color: #5b6875;
+}

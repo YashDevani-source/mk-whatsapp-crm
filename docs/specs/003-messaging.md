@@ -2,7 +2,7 @@ Status: approved
 
 Drafted and approved 2026-11-25 (session 8). The user's "approved" accepted the draft with Decisions 5 to 16 and the recommended answer to each open point (Decision 17).
 
-Build: phases 1 to 4 of 5 done (contracts and migration; worker inbound, MSG-01 to MSG-07; api, MSG-08 to MSG-13, MSG-23; worker sending and status, MSG-14 to MSG-22, MSG-26). The user asked for phases 2 to 5 in one go, with a commit per phase.
+Build: all 5 phases built. Every criterion except the manual MSG-28 (real phone) and the browser part of MSG-24 has passing tests. MSG closes after the MSG-28 phone check with the user. The user asked for phases 2 to 5 in one go, with a commit per phase.
 
 # Spec 3: Messages (MSG)
 
@@ -242,6 +242,13 @@ Made during MSG phase 4 (2026-11-26), within the approved build:
 42. The Fake gains `sendText` (rejects when not connected), `failSends`, `delaySends`, `echoNextSend` (emits the from-me echo, then holds the send for 100 ms, as Baileys does when it echoes its own sends), `report`, and the counters `sends`, `sendCalls`, `maxActiveSends`. `createProvider('fake')` (the dev Fake) reports nothing after a send (MSG-22).
 43. MSG-18's takeover test kills a spawned worker that holds the lock and is connected through a stored Fake session, then queues a job; the in-process standby takes over and sends it once. A job that is active at the moment of the kill is returned by BullMQ's stalled-job check (default lock 30 s); that path is BullMQ's and is not tested here.
 44. Mutation checks: removing the "still queued" guard failed MSG-15; bypassing the in-order queue failed MSG-17 (after the Fake's echo hold was added; before it, the race went the safe way and the test passed). Raising BullMQ concurrency to 2 did not fail MSG-19, because the in-order queue alone also runs sends one at a time. `concurrency: 1` is kept as a second guard.
+
+Made during MSG phase 5 (2026-11-26), within the approved build:
+
+45. WA-23 changed (spec, then test, then code): Managers now land on the messages page instead of the placeholder home. The Super Admin still lands on the connection page and has a Messages tab (`tabsFor`); Employees keep the home page.
+46. Baileys: the pure helpers are in `providers/baileys/helpers.ts` (`e164`, `phoneJid`, `senderPhone`, `messageContent`, `reportedStatus`, `timestampOf`). The adapter sets `emitOwnEvents: false`, handles `messages.upsert` one message at a time (so a LID lookup never reorders them) and `messages.update` receipts for its own messages only, and `sendText` sends to `<digits>@s.whatsapp.net`. Edits and protocol messages are dropped before unwrapping. None of this has run against WhatsApp yet; MSG-28 is its first real test.
+47. Web: one shared socket (`useSocket`); `useMessages` loads over HTTP and stays live over the socket (reloads after a reconnect); `messages-view.ts` holds the pure rules (ticks, labels, resend, ordering, forward-only status in the UI). The Vite proxy adds `/conversations`.
+48. Browser check on 2026-11-26 with `pnpm dev` (Fake, `crm_dev`), through Playwright: a test conversation (`+19995550123`) was inserted by SQL. A Manager send through the proxy got 202 `queued` and then `sent` from the worker. As Super Admin, the Messages tab showed the conversation; Enter sent a reply, the box cleared, and the tick went from the clock to one tick live. Afterwards the test rows were deleted and the stack stopped.
 
 ## Build phases
 

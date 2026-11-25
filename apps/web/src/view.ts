@@ -2,10 +2,18 @@
 // every permission; these only choose what to show.
 import type { Role, WaReason, WaState } from '@crm/shared';
 
-export type View = 'connection' | 'home';
+export type View = 'connection' | 'messages' | 'home';
 
+// The page a role lands on after login (WA-23).
 export function viewFor(role: Role): View {
-  return role === 'SUPER_ADMIN' ? 'connection' : 'home';
+  return tabsFor(role)[0] ?? 'home';
+}
+
+// MSG-24: the pages a role can open. The api refuses the message routes to Employees (MSG-12).
+export function tabsFor(role: Role): View[] {
+  if (role === 'SUPER_ADMIN') return ['connection', 'messages'];
+  if (role === 'MANAGER') return ['messages'];
+  return ['home'];
 }
 
 // The api answers every failed login with the same 401 (FND-08); the page does the same.

@@ -14,6 +14,7 @@ export default defineConfig({
     proxy: {
       '/auth': API,
       '/wa': API,
+      '/conversations': API,
       '/health': API,
       '/socket.io': { target: API, ws: true },
     },

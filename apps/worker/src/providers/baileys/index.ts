@@ -1,18 +1,18 @@
-// The Baileys adapter (WA-26): the only place that imports Baileys (BOOT-06). Connection only;
-// MSG adds sending and receiving. It reports what WhatsApp did; the connection manager decides
-// what happens next.
+// The Baileys adapter (WA-26): the only place that imports Baileys (BOOT-06). It reports what
+// WhatsApp did (connection, messages, receipts) and sends texts (MSG); the connection manager
+// decides what happens next. The pure parts are in `helpers.ts` (MSG-27).
 import makeWASocket, {
   Browsers,
   BufferJSON,
   DisconnectReason,
   initAuthCreds,
-  jidDecode,
   proto,
   type AuthenticationCreds,
   type SignalDataSet,
   type SignalDataTypeMap,
   type SignalKeyStore,
   type SocketConfig,
+  type WAMessage,
   type WASocket,
 } from 'baileys';
 import type {
@@ -24,6 +24,14 @@ import type {
   WaProviderName,
   WhatsAppProvider,
 } from '@crm/shared';
+import {
+  e164,
+  messageContent,
+  phoneJid,
+  reportedStatus,
+  senderPhone,
+  timestampOf,
+} from './helpers.ts';
 
 type Logger = SocketConfig['logger'];
 
@@ -55,12 +63,6 @@ function closeReason(code: number | undefined, showedQr: boolean): ProviderClose
   if (code === DisconnectReason.connectionReplaced) return 'replaced';
   if (code === DisconnectReason.timedOut && showedQr) return 'qr_timeout';
   return 'network';
-}
-
-// `919876543210:12@s.whatsapp.net` → `+919876543210`.
-function e164(jid: string | undefined): string | undefined {
-  const user = jidDecode(jid)?.user;
-  return user && /^\d+$/.test(user) ? `+${user}` : undefined;
 }
 
 function keyStore(store: ProviderAuthStore): SignalKeyStore {
@@ -106,6 +108,8 @@ export class BaileysProvider implements WhatsAppProvider {
       browser: Browsers.ubuntu('MK CRM'),
       markOnlineOnConnect: false,
       syncFullHistory: false,
+      // MSG Decision 10: no echo of the CRM's own sends (MSG-17).
+      emitOwnEvents: false,
     });
     this.socket = socket;
     const live = (): boolean => this.socket === socket;
@@ -117,6 +121,46 @@ export class BaileysProvider implements WhatsAppProvider {
       Object.assign(creds, update);
       const snapshot = toJson(creds);
       saving = saving.then(() => store.saveCreds(snapshot)).catch(() => undefined);
+    });
+
+    // MSG: one message after another, so a LID lookup never reorders them. Messages the adapter
+    // does not report (protocol, reactions, empty) produce no event (MSG-05).
+    let inbound: Promise<void> = Promise.resolve();
+    const receive = async (m: WAMessage): Promise<void> => {
+      const id = m.key.id;
+      const content = messageContent(m.message);
+      if (!id || content === undefined) return;
+      const sender = await senderPhone(m.key, (lid) =>
+        socket.signalRepository.lidMapping.getPNForLID(lid),
+      );
+      if (!live()) return;
+      if ('skip' in sender) return onEvent({ type: 'skipped', reason: sender.skip });
+      const profileName = m.pushName?.trim();
+      onEvent({
+        type: 'message',
+        message: {
+          providerMessageId: id,
+          from: sender.phone,
+          fromMe: m.key.fromMe === true,
+          ...(profileName ? { profileName } : {}),
+          content,
+          at: timestampOf(m.messageTimestamp),
+        },
+      });
+    };
+    socket.ev.on('messages.upsert', ({ messages }) => {
+      if (!live()) return;
+      for (const m of messages) inbound = inbound.then(() => receive(m)).catch(() => undefined);
+    });
+
+    // MSG-21: receipts for the company's own messages only.
+    socket.ev.on('messages.update', (updates) => {
+      if (!live()) return;
+      for (const { key, update } of updates) {
+        const status = reportedStatus(update.status);
+        if (!key.id || !key.fromMe || status === undefined) continue;
+        onEvent({ type: 'status', providerMessageId: key.id, status, at: new Date() });
+      }
     });
 
     socket.ev.on('connection.update', (update) => {
@@ -149,8 +193,12 @@ export class BaileysProvider implements WhatsAppProvider {
     socket?.end(undefined);
   }
 
-  // MSG contract placeholder: sending through Baileys is built in MSG phase 5, after its tests.
-  async sendText(): Promise<ProviderSendResult> {
-    throw new Error('sendText is not built yet (MSG phase 5)');
+  // MSG-14: resolves once WhatsApp has the message, with its id (MSG Decision 12).
+  async sendText(to: string, text: string): Promise<ProviderSendResult> {
+    const socket = this.socket;
+    if (!socket) throw new Error('WhatsApp is not connected');
+    const sent = await socket.sendMessage(phoneJid(to), { text });
+    if (!sent?.key.id) throw new Error('WhatsApp returned no message id');
+    return { providerMessageId: sent.key.id, at: timestampOf(sent.messageTimestamp) };
   }
 }
