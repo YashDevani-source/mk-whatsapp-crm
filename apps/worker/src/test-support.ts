@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { createDb, type Db } from '@crm/db';
-import { CrmEvent, EVENTS_CHANNEL, WA_REDIS, type WaCommand, type WaState } from '@crm/shared';
+import { CrmEvent, waChannels, type WaCommand, type WaState } from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { startWaWorker, type WaWorker, type WorkerConfig } from './connection.ts';
 import { keyFromHex } from './crypto.ts';
@@ -18,6 +18,8 @@ export const TEST_DATABASE_URL = `postgresql://crm:crm@localhost:${PG_PORT}/crm_
 export const TEST_REDIS_URL = `redis://localhost:${REDIS_PORT}/2`;
 export const TEST_KEY_HEX = 'ab'.repeat(32);
 export const TEST_KEY = keyFromHex(TEST_KEY_HEX);
+// WA-28: the channels of Redis db 2.
+export const TEST_CHANNELS = waChannels(2);
 
 // Short timings so lock and backoff tests run in well under a second per step.
 export const TEST_CONFIG: WorkerConfig = {
@@ -57,7 +59,7 @@ export async function recordEvents(): Promise<{
     const parsed = CrmEvent.safeParse(JSON.parse(message));
     if (parsed.success) events.push({ event: parsed.data, at: Date.now() });
   });
-  await sub.subscribe(EVENTS_CHANNEL);
+  await sub.subscribe(TEST_CHANNELS.events);
   return {
     events,
     states: () => events.flatMap((r) => (r.event.event === 'wa.state' ? [r.event.data] : [])),
@@ -112,9 +114,13 @@ export function lastState(rec: { states: () => WaState[] }): WaState | undefined
   return rec.states().at(-1);
 }
 
-export async function sendCommand(redis: Redis, command: WaCommand['command']): Promise<void> {
+export async function sendCommand(
+  redis: Redis,
+  command: WaCommand['command'],
+  channel = TEST_CHANNELS.commands,
+): Promise<void> {
   const body: WaCommand = { v: 1, command, actorId: '00000000-0000-4000-8000-000000000001' };
-  await redis.publish(WA_REDIS.commands, JSON.stringify(body));
+  await redis.publish(channel, JSON.stringify(body));
 }
 
 export function testDb(): Db {

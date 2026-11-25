@@ -23,7 +23,7 @@ Paths are not decided yet, except FND's. Each row says what the route does and w
 | Confirm campaign              | Super Admin, Manager                         | CampaignRecipient rows (unique campaign + contact), jobs queued at a controlled rate     | CMP  |
 | Pause / resume campaign       | Super Admin, Manager                         | Campaign status changed; the worker checks it before each send; audit entry              | CMP  |
 | Reports and CSV export        | Employees see own figures; Managers and Super Admin see all | Aggregate tables scoped by role; export streams rows                      | RPT  |
-| WhatsApp connection (**built**, WA: `apps/api/src/wa.ts`): `POST /wa/qr`, `POST /wa/logout` | `wa.manage` (Super Admin) | 202 and a `WaCommand` on Redis `wa:commands` for the worker, after an audit row (`wa.qr_requested` / `wa.logout_requested`, actor and IP). 409 `invalid_state` unless the worker's `wa:state` is `reconnect_required` (qr) or `connected` (logout); a missing state key is `worker_offline`. The QR and the state themselves arrive over the `admin` and `global` rooms, not through a route. Any non-GET request from an origin outside `ALLOWED_ORIGINS` gets 403 `forbidden_origin` first (WA-22). | WA |
+| WhatsApp connection (**built**, WA: `apps/api/src/wa.ts`): `POST /wa/qr`, `POST /wa/logout` | `wa.manage` (Super Admin) | 202 and a `WaCommand` on Redis `wa:commands:<db>` for the worker, after an audit row (`wa.qr_requested` / `wa.logout_requested`, actor and IP). 409 `invalid_state` unless the worker's `wa:state` is `reconnect_required` (qr) or `connected` (logout); a missing state key is `worker_offline`. The QR and the state themselves arrive over the `admin` and `global` rooms, not through a route. Any non-GET request from an origin outside `ALLOWED_ORIGINS` gets 403 `forbidden_origin` first (WA-22). | WA |
 
 ## Live events (Redis pub/sub, then Socket.io)
 
@@ -48,7 +48,7 @@ Rooms are joined only by the server, and only after a valid session (**built**, 
 | `admin`      | Super Admin              | QR codes, connection alerts                |
 | `global`     | Everyone logged in       | WhatsApp connection state banner           |
 
-Events travel on the Redis channel `crm:events` as a `CrmEvent` envelope. The api's relay (`apps/api/src/events.ts`) validates each one and chooses the rooms from the event type; an invalid event is dropped and logged by error name (WA-17). The socket handshake is refused for an `Origin` outside `ALLOWED_ORIGINS` (WA-21).
+Events travel on the Redis channel `crm:events:<db>` as a `CrmEvent` envelope, where `<db>` is the Redis database in `REDIS_URL` (Redis pub/sub is shared by all databases, so the number keeps dev and the tests apart: WA-28). The api's relay (`apps/api/src/events.ts`) validates each one and chooses the rooms from the event type; an invalid event is dropped and logged by error name (WA-17). The socket handshake is refused for an `Origin` outside `ALLOWED_ORIGINS` (WA-21).
 
 ## WhatsApp connection (built, WA)
 
@@ -57,8 +57,8 @@ Events travel on the Redis channel `crm:events` as a `CrmEvent` envelope. The ap
 | `wa:lock` | worker | The lock holder's worker id, TTL `WA_LOCK_TTL_MS` (30 s), refreshed every TTL/3 with an owner check. A standby retries every TTL/6. |
 | `wa:state` | worker | The latest `WaState`, same TTL, refreshed with the lock. Gone means the worker is offline. |
 | `wa:qr` | worker | The latest `WaQr`, 60 s TTL, deleted when the state leaves `qr_required`. |
-| `crm:events` (channel) | worker | `wa.state`, `wa.qr` (MSG adds its events). |
-| `wa:commands` (channel) | api | `new_qr`, `logout`. Only the lock holder acts, after checking its own state again. |
+| `crm:events:<db>` (channel) | worker | `wa.state`, `wa.qr` (MSG adds its events). |
+| `wa:commands:<db>` (channel) | api | `new_qr`, `logout`. Only the lock holder acts, after checking its own state again. |
 
 States: `connecting` → `qr_required` → `connected`; a network drop gives `disconnected` and a backoff reconnect (1 s doubling to 60 s, ±20 %); a phone logout, an expired QR, an admin logout or an unreadable session stop in `reconnect_required` until "Get new QR". The session (credentials and keys) is stored AES-256-GCM encrypted in `whatsapp_sessions` and `whatsapp_session_keys`, one session per provider.
 

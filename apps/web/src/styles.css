@@ -126,3 +126,19 @@ main {
 .loading {
   padding: 2rem;
 }
+
+button.danger {
+  border-color: #c98a8a;
+  color: #a12a2a;
+}
+
+.confirm {
+  padding: 0.75rem 1rem;
+  border: 1px solid #e3c3c3;
+  border-radius: 6px;
+  background: #fbf3f3;
+}
+
+.confirm button + button {
+  margin-left: 0.6rem;
+}

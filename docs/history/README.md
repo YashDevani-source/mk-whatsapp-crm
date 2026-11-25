@@ -16,3 +16,5 @@ One file per working session, or per build phase when a spec is built in phases 
 | 2026-11-25 | [2026-11-25-wa-phase-3.md](./2026-11-25-wa-phase-3.md) | WA phase 3 of 5 (api: WA-15 to WA-22) | Event relay, state on connect, `/wa` routes, origin checks, api audit rows; 163 pass, 7 todo |
 | 2026-11-25 | [2026-11-25-wa-phase-4.md](./2026-11-25-wa-phase-4.md) | WA phase 4 of 5 (web: WA-23 to WA-25) | Vite + React login, connection page, banner; browser check passed; 170 pass, 6 todo |
 | 2026-11-25 | [2026-11-25-wa-phase-5.md](./2026-11-25-wa-phase-5.md) | WA phase 5 of 5 (WA-26, docs) | Baileys pin test; WA built except WA-27 (real phone, manual); 173 pass, 5 todo |
+| 2026-11-25 | [2026-11-25-wa-phone-check.md](./2026-11-25-wa-phone-check.md) | WA-27 with the real phone; logout confirmation (WA-24) | All WA-27 steps passed; WA closed |
+| 2026-11-25 | [2026-11-25-wa-channel-fix.md](./2026-11-25-wa-channel-fix.md) | Incident: a test run logged out the live session; WA-28 fix | Pub/sub channels scoped by Redis db; 177 pass, 5 todo |

@@ -6,6 +6,7 @@ import {
   WA_REDIS,
   WaQr,
   WaState,
+  waChannels,
   workerOfflineState,
   type ApiError,
   type WaCommand,
@@ -60,7 +61,8 @@ function commandHandler(db: Db, redis: Redis, route: CommandRoute): RequestHandl
       },
     });
     const command: WaCommand = { v: 1, command: route.command, actorId: user.id };
-    await redis.publish(WA_REDIS.commands, JSON.stringify(command));
+    // WA-28: the commands channel of this api's Redis database.
+    await redis.publish(waChannels(redis.options.db ?? 0).commands, JSON.stringify(command));
     res.status(202).end();
   };
 }

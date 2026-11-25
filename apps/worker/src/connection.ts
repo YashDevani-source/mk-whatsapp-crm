@@ -4,9 +4,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Db } from '@crm/db';
 import {
-  EVENTS_CHANNEL,
   WA_REDIS,
   WaCommand,
+  waChannels,
   workerOfflineState,
   type CrmEvent,
   type ProviderCloseReason,
@@ -58,6 +58,9 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
   const log = deps.log ?? ((line: string) => console.log(line));
   const random = deps.random ?? Math.random;
   const workerId = randomUUID();
+  // WA-28: the channels of this worker's Redis database, so it never hears another database's
+  // api (for example the tests while the dev stack runs).
+  const channels = waChannels(redis.options.db ?? 0);
   const lock = createLock(redis, workerId, config.lockTtlMs);
   const heartbeatMs = Math.max(50, Math.floor(config.lockTtlMs / 3));
   const retryMs = Math.max(50, Math.floor(config.lockTtlMs / 6));
@@ -95,7 +98,7 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
     const tx = redis
       .multi()
       .set(WA_REDIS.state, JSON.stringify(next), 'PX', config.lockTtlMs)
-      .publish(EVENTS_CHANNEL, publish({ event: 'wa.state', data: next }));
+      .publish(channels.events, publish({ event: 'wa.state', data: next }));
     if (state !== 'qr_required') tx.del(WA_REDIS.qr);
     await tx.exec();
   }
@@ -106,7 +109,7 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
     await redis
       .multi()
       .set(WA_REDIS.qr, JSON.stringify(data), 'PX', QR_TTL_MS)
-      .publish(EVENTS_CHANNEL, publish({ event: 'wa.qr', data }))
+      .publish(channels.events, publish({ event: 'wa.qr', data }))
       .exec();
   }
 
@@ -254,7 +257,7 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
   }
 
   subscriber.on('message', (channel: string, message: string) => {
-    if (channel !== WA_REDIS.commands) return;
+    if (channel !== channels.commands) return;
     let parsed: ReturnType<typeof WaCommand.safeParse>;
     try {
       parsed = WaCommand.safeParse(JSON.parse(message));
@@ -266,7 +269,7 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
     enqueue(() => onCommand(command));
   });
   const subscribed = subscriber
-    .subscribe(WA_REDIS.commands)
+    .subscribe(channels.commands)
     .catch((error: unknown) => failure('command subscribe', error));
 
   void subscribed.then(() => tryAcquire());
@@ -288,12 +291,12 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
         await redis
           .multi()
           .del(WA_REDIS.state, WA_REDIS.qr)
-          .publish(EVENTS_CHANNEL, publish({ event: 'wa.state', data: workerOfflineState() }))
+          .publish(channels.events, publish({ event: 'wa.state', data: workerOfflineState() }))
           .exec()
           .catch((e: unknown) => failure('offline state', e));
         await lock.release().catch((e: unknown) => failure('lock release', e));
       }
-      await subscriber.unsubscribe(WA_REDIS.commands).catch(() => undefined);
+      await subscriber.unsubscribe(channels.commands).catch(() => undefined);
     },
   };
 }

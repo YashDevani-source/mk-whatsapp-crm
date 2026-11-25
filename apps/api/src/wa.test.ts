@@ -1,7 +1,7 @@
 import {
-  EVENTS_CHANNEL,
   WA_REDIS,
   WaCommand,
+  waChannels,
   type CrmEvent,
   type Role,
   type WaQr,
@@ -24,6 +24,9 @@ import {
   type TestUser,
 } from './test-support.ts';
 
+// WA-28: the channels of Redis db 1, the api tests' database.
+const CHANNELS = waChannels(1);
+
 // Needs `docker compose up -d --wait`. crm_test and Redis db 1 only. The worker is simulated by
 // writing its Redis keys and publishing on its channels directly.
 let ctx: TestContext;
@@ -42,7 +45,7 @@ beforeAll(async () => {
   commands.on('message', (_channel: string, message: string) => {
     received.push(WaCommand.parse(JSON.parse(message)));
   });
-  await commands.subscribe(WA_REDIS.commands);
+  await commands.subscribe(CHANNELS.commands);
   for (const role of ['SUPER_ADMIN', 'MANAGER', 'EMPLOYEE'] as const) {
     const user = await createUser(ctx.db, { role });
     users.push(user);
@@ -101,11 +104,8 @@ async function setWorkerState(s: WaState, currentQr?: WaQr): Promise<void> {
   if (currentQr) await ctx.redis.set(WA_REDIS.qr, JSON.stringify(currentQr));
 }
 
-async function publish(event: CrmEvent | string): Promise<void> {
-  await ctx.redis.publish(
-    EVENTS_CHANNEL,
-    typeof event === 'string' ? event : JSON.stringify(event),
-  );
+async function publish(event: CrmEvent | string, channel = CHANNELS.events): Promise<void> {
+  await ctx.redis.publish(channel, typeof event === 'string' ? event : JSON.stringify(event));
 }
 
 interface Listener {
@@ -202,6 +202,39 @@ describe('live WhatsApp events', () => {
       expect(logged).not.toContain('not json');
     } finally {
       errors.mockRestore();
+    }
+  });
+});
+
+describe('channel isolation', () => {
+  it('WA-28 the relay pushes only events published for its own Redis database', async () => {
+    expect(ctx.redis.options.db).toBe(1);
+    const admin = await connect('SUPER_ADMIN');
+    await waitFor(() => admin.states.length === 1);
+    // Another database's worker (dev on db 0, worker tests on db 2) and the old shared name.
+    for (const channel of [waChannels(0).events, waChannels(2).events, 'crm:events']) {
+      await publish({ event: 'wa.qr', data: qr('FOREIGN') }, channel);
+      await publish({ event: 'wa.state', data: state('reconnect_required') }, channel);
+    }
+    await publish({ event: 'wa.state', data: state('connecting') });
+    await waitFor(() => admin.states.length === 2);
+    expect(admin.states[1]?.state).toBe('connecting');
+    expect(admin.qrs).toEqual([]);
+  });
+
+  it('WA-28 admin commands go out only for the Redis database of the api', async () => {
+    const other = createRedis(TEST_REDIS_URL);
+    const heard: string[] = [];
+    other.on('message', (channel: string) => heard.push(channel));
+    await other.subscribe(waChannels(0).commands, waChannels(2).commands, 'wa:commands');
+    try {
+      await setWorkerState(state('connected'));
+      await request(ctx.app).post('/wa/logout').set('Cookie', cookieOf('SUPER_ADMIN')).expect(202);
+      await waitFor(() => received.length === 1);
+      await pause(100);
+      expect(heard).toEqual([]);
+    } finally {
+      other.disconnect();
     }
   });
 });

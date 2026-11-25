@@ -96,7 +96,13 @@ export function ConnectionPage({
 }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // Logging out unlinks the device at WhatsApp, so it takes a second, separate click (WA-24).
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
   const simulated = state?.provider === 'fake';
+
+  useEffect(() => {
+    if (state?.state !== 'connected') setConfirmingLogout(false);
+  }, [state?.state]);
 
   async function run(action: () => Promise<number>): Promise<void> {
     setBusy(true);
@@ -134,9 +140,33 @@ export function ConnectionPage({
         </button>
       )}
       {state?.state === 'connected' && (
-        <button type="button" disabled={busy} onClick={() => void run(logoutWhatsApp)}>
-          Log out WhatsApp
-        </button>
+        <div>
+          <p>The WhatsApp number is linked to this CRM. Nothing else needs to be done here.</p>
+          {confirmingLogout ? (
+            <div className="confirm" role="alertdialog" aria-label="Confirm WhatsApp logout">
+              <p>
+                Unlink this device from WhatsApp? The stored session is deleted, and a new QR scan
+                is needed to connect again.
+              </p>
+              {/* Cancel sits where the first button was, so a repeated click cancels. */}
+              <button type="button" onClick={() => setConfirmingLogout(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger"
+                disabled={busy}
+                onClick={() => void run(logoutWhatsApp)}
+              >
+                Yes, log out WhatsApp
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="danger" onClick={() => setConfirmingLogout(true)}>
+              Log out WhatsApp…
+            </button>
+          )}
+        </div>
       )}
       {error && (
         <p className="error" role="alert">

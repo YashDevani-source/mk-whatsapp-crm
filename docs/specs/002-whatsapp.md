@@ -1,6 +1,6 @@
 Status: approved
 
-Built: 2026-11-25, in 5 phases. WA-01 to WA-26 have passing tests; the manual check passed with the Fake provider (Decision 38). **WA-27 (the real test phone) is not yet done**: it needs the user's test phone.
+Built: 2026-11-25, in 5 phases. WA-01 to WA-26 have passing tests; the manual check passed with the Fake provider (Decision 38), and WA-27 passed with the real test phone the same day (Decision 42). WA is closed.
 
 Drafted and approved 2026-11-25. The user's "do all parts" approved the draft with its recommendations (Decisions 5 to 11, and the open points as recommended: `baileys` 7.0.0-rc14, lock TTL 30 s, no "Get new QR" in `disconnected`) and the build of all five phases.
 
@@ -65,10 +65,11 @@ IDs are `WA-NN` and are never reused. "Test level" also states how it is verifie
 | WA-21 | A socket handshake whose `Origin` header is not in `ALLOWED_ORIGINS` is refused before the session check. An allowed origin, or no `Origin` header, continues to the session check (FND-15). | Must | Socket test |
 | WA-22 | A non-GET HTTP request whose `Origin` header is not in `ALLOWED_ORIGINS` gets 403 `forbidden_origin`. The api sends no CORS headers for any origin. | Should | Integration test |
 | WA-23 | The login page logs in with a seeded user's email and password. Every failure shows the same generic message (and 429 a "too many attempts" message). After login a Super Admin lands on the connection page and the other roles on a placeholder home. Logout returns to the login page. | Must | Manual |
-| WA-24 | The connection page (Super Admin only) shows the live state, shows the QR and replaces it when a new one arrives, offers "Get new QR" in `reconnect_required` and "Log out WhatsApp" in `connected`, and shows any error from those actions. | Must | Manual |
+| WA-24 | The connection page (Super Admin only) shows the live state, shows the QR and replaces it when a new one arrives, offers "Get new QR" in `reconnect_required` and "Log out WhatsApp" in `connected`, and shows any error from those actions. "Log out WhatsApp" sends nothing until a separate confirmation click, and the confirmation is cancelled when the state leaves `connected`. | Must | Manual |
 | WA-25 | Every page shows the connection banner to every role. It warns on `disconnected` and `reconnect_required`, and shows "Simulated" whenever the provider is `fake`. | Must | Unit test (banner text) + Manual |
 | WA-26 | `baileys` is pinned to an exact version in `apps/worker/package.json` (no `^` or `~`), is imported only inside `apps/worker/src/providers/baileys/`, and the adapter there satisfies the shared provider interface. | Must | Test |
 | WA-27 | With the real test phone and `WHATSAPP_PROVIDER=baileys`: scanning the QR connects; restarting the worker reconnects without a QR; cutting the server's network shows `disconnected` and then recovers; unlinking the device from the phone shows `reconnect_required`, and "Get new QR" pairs again. | Must | Manual |
+| WA-28 | The api and the worker exchange events and commands only with processes on the same Redis database (the one in `REDIS_URL`). An event or command published by processes on another database (for example the tests on db 1 or 2 while the dev stack runs on db 0) is never received: no push to browsers, no state change, no logout. | Must | Worker test + socket test |
 
 Priority: Must (blocks the checkpoint), Should (do in the phase if time allows), Could (only if trivial).
 
@@ -97,7 +98,7 @@ Types only, written before the tests (WA phase 1).
   - `wa:lock`: the worker id, set with `NX` and a TTL of `WA_LOCK_TTL_MS`. The holder refreshes it every TTL / 3 with an owner check (Lua), and deletes it on shutdown with an owner check.
   - `wa:state`: the latest `WaState`, with the same TTL, refreshed by the heartbeat. A missing key means `worker_offline`.
   - `wa:qr`: the latest `WaQr`, short TTL, deleted when the state leaves `qr_required`.
-  - Pub/sub `crm:events` (worker to api, `CrmEvent`) and `wa:commands` (api to worker, `WaCommand`).
+  - Pub/sub `crm:events:<db>` (worker to api, `CrmEvent`) and `wa:commands:<db>` (api to worker, `WaCommand`), where `<db>` is the Redis database number of the process's connection (`waChannels(db)`). Redis pub/sub is global to the server, not per database, so the number keeps processes on different databases apart (WA-28, Decision 43).
 
 ## Edge cases
 
@@ -169,7 +170,7 @@ Made during WA phase 2 (2026-11-25), within the approved build:
 22. On shutdown the worker deletes `wa:state` and `wa:qr` and publishes `disconnected` with reason `worker_offline`, so the banner changes at once instead of after the state key's TTL.
 23. Close mapping in the manager: `network` gives `disconnected` and a backoff reconnect; a failed connect also counts as `network`. `restart` reconnects at once. `logged_out` clears the session (WA-12). `qr_timeout` stops (WA-13). `replaced` stops with reason `other`. A `wa.disconnected` audit row is written only when the connection had been `connected`.
 24. The Fake's `pnpm dev` auto-pair delay is 5 s (`FAKE_AUTO_PAIR_MS`), and its number is the fictional `+12025550100`.
-25. Worker tests use Redis **db 2** and `crm_test` (`apps/worker/src/test-support.ts`), a vitest `globalSetup` that migrates `crm_test`, and `fileParallelism: false`. The lock tests WA-03 and WA-05 spawn real `main.ts` processes; the others run the manager in-process with short timings (TTL 600 ms, backoff 50 to 200 ms). FND-02's spawned worker moved to Redis db 2 as well, because the worker now takes the lock at startup.
+25. Worker tests use Redis **db 2** and `crm_test` (`apps/worker/src/test-support.ts`), a vitest `globalSetup` that migrates `crm_test`, and `fileParallelism: false`. The lock tests WA-03 and WA-05 spawn real `main.ts` processes; the others run the manager in-process with short timings (TTL 600 ms, backoff 50 to 200 ms). FND-02's spawned worker moved to Redis db 2 as well, because the worker now takes the lock at startup. *Corrected by Decision 43: Redis db numbers separate keys but not pub/sub channels.*
 26. `tsconfig.base.json` now has `erasableSyntaxOnly`: Node's type stripping rejected a constructor parameter property at runtime, which typecheck had passed. Typecheck now catches such syntax.
 27. The root `pnpm test` runs package tests one package at a time (`pnpm -r --workspace-concurrency=1 test`). With the worker tests spawning processes beside the api tests, FND-03's 2 s health check timed out once (the open item in CLAUDE.md). The packages also share `crm_test`.
 28. The FND-05 raw-SQL tests now truncate after themselves. Vitest orders files by cached duration, so when `schema.test.ts` ran after `seed.test.ts`, its user with the password hash `x` reached the api tests and failed FND-18. This was an FND isolation gap, found by the new order.
@@ -181,7 +182,7 @@ Made during WA phase 3 (2026-11-25), within the approved build:
 31. `POST /wa/qr` and `POST /wa/logout` read `wa:state`, answer 409 `invalid_state` unless it is `reconnect_required` (qr) or `connected` (logout), write the audit row (`meta: { provider }`, actor, `req.ip`), then publish the `WaCommand`. A missing state key counts as `worker_offline` and gives 409. Only accepted requests are audited.
 32. On connect, each socket gets `wa.state` from `wa:state` (or `worker_offline`). A socket in `admin` also gets `wa:qr`, but only while the state is `qr_required`, so a stale QR is never shown.
 33. The relay drops a bad event and logs `api: dropped event (<error name>)`, never the content.
-34. Api test support starts the relay for every `testApp`, on its own Redis connection. The promise gets a no-op handler, so a test file that closes before the subscription finishes does not raise an unhandled rejection. BOOT-08's own `pnpm -r test` run now also uses `--workspace-concurrency=1` (Decision 27); in parallel the api and worker suites overlapped and exposed that rejection.
+34. Api test support starts the relay for every `testApp`, on its own Redis connection. The promise gets a no-op handler, so a test file that closes before the subscription finishes does not raise an unhandled rejection. BOOT-08's own `pnpm -r test` run now also uses `--workspace-concurrency=1` (Decision 27); in parallel the api and worker suites overlapped and exposed that rejection. *Corrected by Decision 43.*
 35. The WA-15 and WA-21 tests were checked against mutations: sending `wa.qr` to `global`, and allowing every origin. Each made its test fail.
 
 Made during WA phase 4 (2026-11-25), within the approved build:
@@ -194,6 +195,16 @@ Made during WA phase 5 (2026-11-25), within the approved build:
 
 39. WA-26 is a repo-level test (`tests/whatsapp/baileys.test.ts`): the worker declares `baileys` exactly `7.0.0-rc14` and no other package declares any Baileys name; the lockfile resolves that version; no source file outside the adapter folder imports a Baileys package (a second check besides BOOT-06's lint rule); the adapter's class `implements WhatsAppProvider` and loads. This also covers BOOT's suggested "exact Baileys version pin" check for Baileys.
 40. The Baileys adapter has not run against WhatsApp yet. It typechecks against Baileys' own types and loads, and the close-code mapping follows `DisconnectReason`. WA-27 is its first real test; if it shows a wrong mapping, the fix is in the adapter only.
+41. Changed during the WA-27 phone check (2026-11-25): WA-24 now requires a confirmation step before "Log out WhatsApp" sends anything. Twice, about 40 s after pairing, a `POST /wa/logout` came from the Super Admin's browser and unlinked the device. The "Log out WhatsApp" button appeared in the same place as the "Get new QR" button that had just been clicked. The first click now only shows "Unlink this device from WhatsApp?" with Cancel in the first button's place and "Yes, log out WhatsApp" second, so a repeated click cancels. The server side (WA-19) is unchanged.
+42. WA-27 passed on 2026-11-25 with the user's test phone, `WHATSAPP_PROVIDER=baileys`, `crm_dev`, the dev stack on this machine. Times are UTC, from a recorder on `crm:events` and the audit log:
+    - QR scan → `connected` (17:06:31; after the scan WhatsApp's `restart` close was followed by an immediate reconnect, as in Decision 14). The first QR set of each try expired unscanned (`qr_timeout`), and "Get new QR" worked each time.
+    - Restart of the whole stack → `connecting` 17:20:30.3 → `connected` 17:20:32.7, with no `qr_required` and no `wa.qr` (the Phase 1 checkpoint "restart, still connected without a new QR").
+    - Wi-Fi off → `disconnected` (network) 17:25:22 and a `wa.disconnected` row; retries after about 1, 2, 4, 7.6, 18.6 and 33 s; Wi-Fi on → `connected` 17:27:37, no QR.
+    - Unlink from the phone → `reconnect_required` (`logged_out_from_phone`) 17:28:40, session and keys deleted, no retry; "Get new QR" → `connected` 17:29:30.
+    - Also seen: "Log out WhatsApp" unlinks the device at WhatsApp and deletes the session (WA-19), several times; three of those were the unintended clicks behind Decision 41, before the confirmation step existed.
+    - The Baileys adapter needed no change (Decision 40).
+
+43. Incident and fix (2026-11-25, after WA-27). Running `pnpm test` while the dev stack was connected to the real number logged that number out: at 17:30:44 the dev worker obeyed a `logout` command published by the worker tests, then a test's `new_qr` started a fresh pairing, and the dev api relayed the tests' events (including the WA-17 malformed ones) to the open browser. Cause: Decisions 25 and 34 separated the test runs from dev by Redis database number, but pub/sub channels are shared by all databases of a Redis server. Fix: channel names carry the database number (`crm:events:<db>`, `wa:commands:<db>`, from `waChannels(db)` in `packages/shared/src/wa.ts`), and each process takes `db` from its own Redis connection (`redis.options.db`), so the api and the worker on one `REDIS_URL` still match. New criterion WA-28. The keys (`wa:lock`, `wa:state`, `wa:qr`) were already per database. The test phone had to be paired again after the fix.
 
 ## Build phases
 

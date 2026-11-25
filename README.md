@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms) and Spec 2 (WA: the WhatsApp connection) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Messages are not sent or received yet (MSG, next). WA-27, the check with the real test phone, is still to be done by hand.
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms) and Spec 2 (WA: the WhatsApp connection) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Messages are not sent or received yet (MSG, next). The real test phone check (WA-27) passed: QR pairing, restart without a new QR, recovery after a network drop, and re-pairing after unlinking from the phone.
 
 ## What we did in session 1
 
@@ -58,7 +58,7 @@ Socket.io runs on the same port. A connection without a valid `crm_sid` cookie i
 ### WhatsApp
 
 - **Fake (default, `WHATSAPP_PROVIDER=fake`):** a simulation. The connection page shows a simulated QR and pairs itself after 5 seconds; the banner shows a "Simulated" tag.
-- **Real test number (`WHATSAPP_PROVIDER=baileys` in `.env`, then restart `pnpm dev`):** the Super Admin opens the connection page, and on the test phone goes to WhatsApp → Linked devices → Link a device and scans the QR. The session is stored encrypted in Postgres (`SESSION_ENCRYPTION_KEY`), so a restart reconnects without a new QR. "Log out WhatsApp" unlinks the device; "Get new QR" pairs again after a logout or an expired QR. Use a test number only.
+- **Real test number (`WHATSAPP_PROVIDER=baileys` in `.env`, then restart `pnpm dev`):** the Super Admin opens the connection page, and on the test phone goes to WhatsApp → Linked devices → Link a device and scans the QR. The session is stored encrypted in Postgres (`SESSION_ENCRYPTION_KEY`), so a restart reconnects without a new QR. "Log out WhatsApp…" (with a confirmation click) unlinks the device; "Get new QR" pairs again after a logout or an expired QR. Use a test number only.
 - Only one worker may hold the WhatsApp session. A second worker prints `standby, another worker holds the WhatsApp lock` and takes over within about 35 s if the first one dies (at once if it is stopped with Ctrl-C).
 - The browser talks only to the Vite dev server, which forwards `/auth`, `/wa` and `/socket.io` to the api, so there is no CORS. The api refuses sockets and non-GET requests from origins not in `ALLOWED_ORIGINS`.
 
@@ -124,6 +124,5 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 
 - CI has not run yet; it needs a GitHub repo.
 - Specs after WA (MSG, INB, …) are not written yet. No message is sent or received yet.
-- WA-27 (the real test phone end to end) has not been run; it needs the test phone.
 - The Baileys pin is a release candidate (`7.0.0-rc14`, npm's `latest`); see WA Decision 6.
 - See [docs/history/](docs/history/README.md) for the full open-items list.

@@ -44,7 +44,7 @@ export const WaQr = z.object({
 });
 export type WaQr = z.infer<typeof WaQr>;
 
-// The envelope on the `crm:events` channel (worker to api). The api picks the rooms from `event`;
+// The envelope on the events channel (worker to api, `waChannels(db).events`). The api picks the rooms from `event`;
 // the publisher never chooses them. MSG adds its events to this union.
 export const CrmEvent = z.discriminatedUnion('event', [
   z.object({ event: z.literal('wa.state'), data: WaState }),
@@ -52,7 +52,7 @@ export const CrmEvent = z.discriminatedUnion('event', [
 ]);
 export type CrmEvent = z.infer<typeof CrmEvent>;
 
-// On the `wa:commands` channel (api to worker). Only the lock holder acts on it (WA-18, WA-19).
+// On the commands channel (api to worker, `waChannels(db).commands`). Only the lock holder acts on it (WA-18, WA-19).
 export const WaCommand = z.object({
   v: z.literal(1),
   command: z.enum(['new_qr', 'logout']),
@@ -60,14 +60,26 @@ export const WaCommand = z.object({
 });
 export type WaCommand = z.infer<typeof WaCommand>;
 
-// Redis keys and channels shared by the api and the worker.
+// Redis keys shared by the api and the worker. Keys are per database; channels are not (below).
 export const WA_REDIS = {
   lock: 'wa:lock',
   state: 'wa:state',
   qr: 'wa:qr',
-  commands: 'wa:commands',
 } as const;
-export const EVENTS_CHANNEL = 'crm:events';
+
+export interface WaChannels {
+  // Worker to api, `CrmEvent`.
+  events: string;
+  // Api to worker, `WaCommand`.
+  commands: string;
+}
+
+// WA-28: Redis pub/sub channels are shared by every database of a Redis server, unlike keys. The
+// database number in the name keeps processes on different databases (dev on db 0, tests on 1
+// and 2) from hearing each other. `db` is the database of the process's own Redis connection.
+export function waChannels(db: number): WaChannels {
+  return { events: `crm:events:${db}`, commands: `wa:commands:${db}` };
+}
 
 // The state the api reports when the worker's state key has expired (WA-16).
 export function workerOfflineState(at: Date = new Date()): WaState {

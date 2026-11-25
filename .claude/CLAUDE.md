@@ -7,20 +7,20 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25, WA built except the phone check)
+## Current state (updated 2026-11-25, WA closed)
 - **Done:** Spec 0 (`BOOT`), Spec 1 (`FND`, 20 criteria) and Spec 2 (`WA`, `docs/specs/002-whatsapp.md`, 27 criteria) are built. History: `docs/history/2026-11-25-fnd-phase-*.md`, `…-wa-spec-draft.md`, `…-wa-phase-*.md`.
   - FND: env validation (`parseEnv`), `GET /health`, migration `init` and seed, login with signed `crm_sid` cookie and Redis sessions, `PERMISSION_MAP`/`can()`, the `access(level)` route guard, authenticated sockets with server-assigned rooms (`roomsFor`), logout/deactivation disconnects. FND Decisions 1 to 42.
   - WA worker (`apps/worker/src/`): `connection.ts` (`startWaWorker`: lock, states, backoff, commands, audit), `lock.ts` (`wa:lock`, Lua owner checks), `session-store.ts` + `crypto.ts` (AES-256-GCM, AAD per row), `providers/fake/fake.ts`, `providers/baileys/index.ts` (pinned `baileys` 7.0.0-rc14, connection only), `providers/index.ts` (`createProvider`). Migration `wa-session` (provider column, nullable number, `whatsapp_session_keys`).
-  - WA api: `events.ts` (relay `crm:events` → `wa.state` to `global`, `wa.qr` to `admin`), `wa.ts` (`POST /wa/qr`, `POST /wa/logout`, `wa.manage`), `origin.ts` (socket `allowRequest` + non-GET origin guard; no CORS), state and QR sent on socket connect.
+  - WA api: `events.ts` (relay `crm:events:<db>` → `wa.state` to `global`, `wa.qr` to `admin`), `wa.ts` (`POST /wa/qr`, `POST /wa/logout`, `wa.manage`), `origin.ts` (socket `allowRequest` + non-GET origin guard; no CORS), state and QR sent on socket connect.
   - WA web (`apps/web`): Vite + React 19, no router. Login page, Super Admin connection page with QR, home placeholder, banner with "Simulated" tag. Vite proxy for `/auth`, `/wa`, `/health`, `/socket.io` on port 5173.
   - Contracts: `packages/shared/src/wa.ts` (`WaState`, `WaQr`, `CrmEvent`, `WaCommand`, `WA_REDIS`, `EVENTS_CHANNEL`, `WhatsAppProvider`, `ProviderAuthStore`). `WorkerEnv` adds `WHATSAPP_PROVIDER` (default `fake`), `WA_LOCK_TTL_MS`, `WA_RECONNECT_BASE_MS`, `WA_RECONNECT_MAX_MS`.
-- **Not done:** WA-27, the real test phone end to end with `WHATSAPP_PROVIDER=baileys` (QR scan, restart without QR, network drop, unlink from phone, new QR). The Baileys adapter has never talked to WhatsApp (WA Decision 40).
+- **WA-27 passed** with the real test phone (WA Decision 42): QR scan, restart without QR, network drop and recovery, unlink from the phone and re-pair. "Log out WhatsApp" now needs a confirmation click (WA-24, Decision 41). The Phase 1 checkpoint's restart part is proven; its message part needs MSG.
 - **Tests:** `pnpm test` gives 173 passed and 5 `it.todo` (BOOT-09, BOOT-16, and the manual WA-23, WA-24, WA-27).
   - typecheck, lint, format:check and traceability pass.
-  - Package tests run one package at a time (`--workspace-concurrency=1`): the packages share `crm_test`. Api tests use Redis db 1, worker tests Redis db 2, dev uses db 0.
+  - Package tests run one package at a time (`--workspace-concurrency=1`): the packages share `crm_test`. Api tests use Redis db 1, worker tests Redis db 2, dev uses db 0. Pub/sub channels carry the db number (`waChannels(db)`, WA-28): Redis pub/sub is shared by all databases, and before this fix a test run logged out the live dev session (WA Decision 43).
   - Worker tests: in-process managers with short timings, plus spawned `main.ts` for the kill/SIGTERM lock tests (WA-03, WA-05).
-- **Next:** the user runs WA-27 with the test phone (README "WhatsApp"), then the MSG spec (send, receive, status; extends the provider interface and both adapters), after the user's go-ahead.
-- `crm_dev` holds a `FAKE` session row and `wa.*` audit rows from the browser check.
+- **Next:** the MSG spec (send, receive, status; extends the provider interface and both adapters), after the user's go-ahead.
+- `crm_dev` holds a `FAKE` session row, a live `BAILEYS` session for the test number, and `wa.*` audit rows from the checks.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
 - Session notes: `docs/history/`.
 
@@ -100,7 +100,7 @@ If a spec is wrong: update the spec, then the test, then the code. Write decisio
 - Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
 - Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
 - Specs after WA (MSG, INB, …) are unwritten.
-- WA-27 (real phone) is open. `baileys` is a release candidate (7.0.0-rc14); if it misbehaves, the fallback is `legacy` 6.7.24 (WA Decision 6).
+- `baileys` is a release candidate (7.0.0-rc14); it passed WA-27. If it misbehaves later, the fallback is `legacy` 6.7.24 (WA Decision 6).
 - The USR deactivate route must call `sockets.endUser` so sockets drop at once (FND Decision 40).
 - FND-03's 2 s health timeout failed under parallel package tests; package tests now run one at a time (WA Decision 27). Watch it in CI.
 - CI (`.github/workflows/ci.yml`) has not run; needs a GitHub repo.

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { Db } from '@crm/db';
-import { WA_REDIS, WorkerEnv, parseEnv } from '@crm/shared';
+import { WA_REDIS, WorkerEnv, parseEnv, waChannels } from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reconnectDelay } from './backoff.ts';
@@ -366,6 +366,39 @@ describe('admin commands', () => {
     await pause(200);
     expect(w.fake.logoutCalls).toBe(0);
     expect(lastState(rec)?.state).toBe('qr_required');
+  });
+});
+
+describe('channel isolation', () => {
+  it('WA-28 a worker acts only on commands from its own Redis database', async () => {
+    expect(redis.options.db).toBe(2);
+    const w = await connected();
+    // The dev api on db 0, and the old channel name every database shared before the fix.
+    await sendCommand(redis, 'logout', waChannels(0).commands);
+    await sendCommand(redis, 'logout', 'wa:commands');
+    await pause(300);
+    expect(w.fake.logoutCalls).toBe(0);
+    expect(lastState(rec)?.state).toBe('connected');
+
+    await sendCommand(redis, 'logout');
+    await waitFor(stateIs('reconnect_required', 'logged_out_by_admin'));
+  });
+
+  it('WA-28 a worker publishes its events only for its own Redis database', async () => {
+    const other = createRedis(TEST_REDIS_URL);
+    const heard: string[] = [];
+    other.on('message', (channel: string) => heard.push(channel));
+    await other.subscribe(waChannels(0).events, waChannels(1).events, 'crm:events');
+    try {
+      const w = start();
+      await waitFor(() => w.fake.connected);
+      w.fake.emitQr();
+      await waitFor(stateIs('qr_required'));
+      await pause(100);
+      expect(heard).toEqual([]);
+    } finally {
+      other.disconnect();
+    }
   });
 });
 
