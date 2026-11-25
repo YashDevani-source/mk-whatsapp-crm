@@ -17,8 +17,11 @@ import { canOpen, landingPath, navFor, pageForPath, PAGES, type PageKey } from '
 import { UserProvider, useDemo, useLive, useUser } from './context.tsx';
 import { DemoControls } from './controls.tsx';
 import { formatPhone } from './format.ts';
+import { FollowUpsPage } from './followups-page.tsx';
 import { InboxPage } from './inbox-page.tsx';
+import { LeadsPage } from './leads-page.tsx';
 import { LoginPage } from './login.tsx';
+import { PropertiesPage } from './properties-page.tsx';
 import { DEMO_COMPANY } from './seed.ts';
 import { ToastHost } from './toasts.tsx';
 import { Avatar, Empty, NoAccess, PageHeader, RoleBadge, Skeleton, Tag } from './ui.tsx';
@@ -88,9 +91,9 @@ const PAGE_ELEMENTS: Readonly<Record<PageKey, ReactNode>> = {
   dashboard: <Placeholder page="dashboard" phase={4} />,
   home: <Placeholder page="home" phase={4} />,
   inbox: <InboxPage />,
-  leads: <Placeholder page="leads" phase={3} />,
-  properties: <Placeholder page="properties" phase={3} />,
-  followUps: <Placeholder page="followUps" phase={3} />,
+  leads: <LeadsPage />,
+  properties: <PropertiesPage />,
+  followUps: <FollowUpsPage />,
   campaigns: <Placeholder page="campaigns" phase={4} />,
   users: <Placeholder page="users" phase={4} />,
   reports: <Placeholder page="reports" phase={4} />,

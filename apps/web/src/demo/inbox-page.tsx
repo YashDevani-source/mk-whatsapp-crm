@@ -24,6 +24,7 @@ import {
 } from './chat-view.ts';
 import { useDemo, useLive, useNow, useUser } from './context.tsx';
 import { formatAgo, formatDateTime, formatPhone, formatPrice } from './format.ts';
+import { ShareModal } from './properties-page.tsx';
 import { useToast } from './toasts.tsx';
 import { Avatar, Chip, Empty, errorText, ErrorNote, Skeleton } from './ui.tsx';
 
@@ -390,6 +391,7 @@ function Composer({
   const [note, setNote] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [sharing, setSharing] = useState(false);
   const lastTyping = useRef(0);
   const holding = useRef(false);
 
@@ -489,6 +491,14 @@ function Composer({
           <input type="checkbox" checked={note} onChange={(e) => setNote(e.target.checked)} />
           Internal note
         </label>
+        <button
+          type="button"
+          className="btn btn-small"
+          disabled={!waConnected || lockedByOther}
+          onClick={() => setSharing(true)}
+        >
+          Share property
+        </button>
         <span className={length > MAX_TEXT_LENGTH ? 'counter over' : 'counter'}>
           {length}/{MAX_TEXT_LENGTH}
         </span>
@@ -500,6 +510,7 @@ function Composer({
           {note ? 'Add note' : 'Send'}
         </button>
       </div>
+      {sharing && <ShareModal conversationId={id} onClose={() => setSharing(false)} />}
     </form>
   );
 }

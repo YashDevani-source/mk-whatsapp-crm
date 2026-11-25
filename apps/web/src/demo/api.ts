@@ -3,6 +3,8 @@
 // checks the role, the Employee scope and the reply lock, and only then answers. Nothing here
 // calls `fetch`.
 import {
+  FollowUpInput,
+  LeadNeeds,
   SendMessageRequest,
   type AuditEntry,
   type ConversationStatus,
@@ -10,7 +12,9 @@ import {
   type InboxConversation,
   type InboxItem,
   type LeadHistoryEntry,
+  type LeadStage,
   type LeadView,
+  type MediaFile,
   type MessageSender,
   type ProjectView,
   type ReplyLock,
@@ -22,6 +26,14 @@ import {
 import { demoCan, scopedToSelf, type DemoAction } from './access.ts';
 import type { DemoBus } from './bus.ts';
 import * as engine from './engine.ts';
+import {
+  budgetValid,
+  propertyCard,
+  propertyMessage,
+  uploadKind,
+  uploadProblem,
+  type UploadFile,
+} from './rules.ts';
 import { DEMO_PASSWORD } from './seed.ts';
 import type { ConversationRow, DemoData, DemoStore, FollowUpRow, LeadRow, WaRow } from './store.ts';
 import { byAt, itemsOf, toConversation, toFollowUp, toLead } from './views.ts';
@@ -110,6 +122,17 @@ export function createDemoApi(deps: DemoApiDeps) {
   const now = deps.now ?? (() => new Date());
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const random = deps.random ?? Math.random;
+  // Uploaded files live for this tab's session only (DEMO-24): object URLs cannot be saved.
+  const sessionMedia = new Map<string, MediaFile[]>();
+
+  function withSessionMedia(project: ProjectView): ProjectView {
+    const extra = sessionMedia.get(project.id) ?? [];
+    return {
+      ...project,
+      photos: [...project.photos, ...extra.filter((m) => m.kind === 'image')],
+      brochures: [...project.brochures, ...extra.filter((m) => m.kind === 'pdf')],
+    };
+  }
 
   // Runs a change in one store write, then sends its live events (to this tab and the others).
   function mutate<T>(change: (data: DemoData, ctx: engine.EngineCtx) => T): T {
@@ -146,14 +169,20 @@ export function createDemoApi(deps: DemoApiDeps) {
   const ownsFollowUp = (user: UserView, row: FollowUpRow): boolean =>
     !scopedToSelf(user.role) || row.ownerId === user.id;
 
+  function followUpRow(user: UserView, id: string, data: DemoData = store.data): FollowUpRow {
+    const row = data.followUps.find((f) => f.id === id);
+    if (!row || !ownsFollowUp(user, row)) throw new DemoApiError('not_found');
+    return row;
+  }
+
   function conversationRow(user: UserView, id: string, data: DemoData = store.data) {
     const row = data.conversations.find((c) => c.id === id);
     if (!row || !ownsConversation(user, row)) throw new DemoApiError('not_found');
     return row;
   }
 
-  function leadRow(user: UserView, id: string): LeadRow {
-    const row = store.data.leads.find((l) => l.id === id);
+  function leadRow(user: UserView, id: string, data: DemoData = store.data): LeadRow {
+    const row = data.leads.find((l) => l.id === id);
     if (!row || !ownsLead(user, row)) throw new DemoApiError('not_found');
     return row;
   }
@@ -401,6 +430,47 @@ export function createDemoApi(deps: DemoApiDeps) {
       return store.data.leadHistory.filter((h) => h.leadId === leadId).sort(byAt);
     },
 
+    // DEMO-23: stage, needs and owner changes, each with a history row and an audit row.
+    async updateLeadStage(id: string, stage: LeadStage): Promise<void> {
+      const user = await guard('leads.edit');
+      mutate((data, ctx) => {
+        if (!engine.setLeadStage(data, ctx, leadRow(user, id, data), sender(user), stage)) {
+          throw new DemoApiError('wrong_state');
+        }
+      });
+    },
+
+    async updateLeadNeeds(id: string, needs: LeadNeeds): Promise<void> {
+      const user = await guard('leads.edit');
+      const parsed = LeadNeeds.safeParse(needs);
+      if (!parsed.success || !budgetValid(parsed.data)) throw new DemoApiError('invalid_body');
+      mutate((data, ctx) => {
+        engine.setLeadNeeds(data, ctx, leadRow(user, id, data), sender(user), parsed.data);
+      });
+    },
+
+    async assignLead(id: string, ownerId: string | null): Promise<void> {
+      const user = await guard('leads.assign');
+      mutate((data, ctx) => {
+        const lead = leadRow(user, id, data);
+        if (ownerId !== null && !data.users.some((u) => u.id === ownerId && u.active)) {
+          throw new DemoApiError('invalid_body');
+        }
+        engine.setLeadOwner(data, ctx, lead, sender(user), ownerId);
+      });
+    },
+
+    // The customer's other leads (earlier, closed ones), newest first.
+    async listOtherLeads(id: string): Promise<LeadView[]> {
+      const user = await guard('leads.read');
+      const lead = leadRow(user, id);
+      const data = store.data;
+      return data.leads
+        .filter((l) => l.contactId === lead.contactId && l.id !== id && ownsLead(user, l))
+        .map((l) => toLead(data, l))
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+
     async listFollowUps(): Promise<FollowUpView[]> {
       const user = await guard('followups.manage');
       const data = store.data;
@@ -410,9 +480,136 @@ export function createDemoApi(deps: DemoApiDeps) {
         .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
     },
 
+    // DEMO-25: follow-ups. An Employee creates them only on their own leads.
+    async createFollowUp(input: FollowUpInput): Promise<void> {
+      const user = await guard('followups.manage');
+      const parsed = FollowUpInput.safeParse(input);
+      if (!parsed.success) throw new DemoApiError('invalid_body');
+      const { leadId, dueAt, note, autoReply } = parsed.data;
+      mutate((data, ctx) => {
+        const lead = leadRow(user, leadId, data);
+        data.followUps.push({
+          id: ctx.newId(),
+          leadId,
+          ownerId: lead.ownerId ?? user.id,
+          dueAt,
+          note,
+          autoReply,
+          sentAt: null,
+          doneAt: null,
+        });
+      });
+    },
+
+    async updateFollowUp(id: string, input: Omit<FollowUpInput, 'leadId'>): Promise<void> {
+      const user = await guard('followups.manage');
+      const parsed = FollowUpInput.omit({ leadId: true }).safeParse(input);
+      if (!parsed.success) throw new DemoApiError('invalid_body');
+      mutate((data) => {
+        const row = followUpRow(user, id, data);
+        row.dueAt = parsed.data.dueAt;
+        row.note = parsed.data.note;
+        // A sent auto-reply stays as it was sent.
+        if (row.sentAt === null) row.autoReply = parsed.data.autoReply;
+      });
+    },
+
+    async completeFollowUp(id: string): Promise<void> {
+      const user = await guard('followups.manage');
+      mutate((data, ctx) => {
+        const row = followUpRow(user, id, data);
+        if (row.doneAt === null) row.doneAt = ctx.now.toISOString();
+      });
+    },
+
+    // "Run now (test)": sends the test auto-reply into the lead's chat, once (DEMO-25).
+    async runFollowUp(id: string): Promise<void> {
+      const user = await guard('followups.manage');
+      mutate((data, ctx) => {
+        const row = followUpRow(user, id, data);
+        if (row.sentAt !== null) throw new DemoApiError('already_sent');
+        if (row.autoReply === null) throw new DemoApiError('invalid_body');
+        const lead = data.leads.find((l) => l.id === row.leadId);
+        const chat = data.conversations.find((c) => c.id === lead?.conversationId);
+        if (!lead || !chat) throw new DemoApiError('wrong_state');
+        checkSend(data, user, chat.id);
+        const owner = engine.senderName(data, row.ownerId) ?? sender(user);
+        engine.sendOutbound(
+          data,
+          ctx,
+          chat,
+          { id: owner.id, name: `${owner.name} · auto-reply (test)` },
+          row.autoReply,
+        );
+        row.sentAt = ctx.now.toISOString();
+        engine.audit(
+          data,
+          ctx,
+          sender(user),
+          'followup.sent',
+          engine.contactLabel(data, lead.contactId),
+          'Run now (test)',
+        );
+      });
+    },
+
     async listProjects(): Promise<ProjectView[]> {
       await guard('properties.read');
-      return store.data.projects;
+      return store.data.projects.map(withSessionMedia);
+    },
+
+    async getProject(id: string): Promise<ProjectView> {
+      await guard('properties.read');
+      const project = store.data.projects.find((p) => p.id === id);
+      if (!project) throw new DemoApiError('not_found');
+      return withSessionMedia(project);
+    },
+
+    // DEMO-24: a property card into a chat, as a normal outbound message.
+    async shareProperty(
+      conversationId: string,
+      projectId: string,
+      unitId: string | null,
+    ): Promise<void> {
+      const user = await guard('messages.send');
+      mutate((data, ctx) => {
+        const row = conversationRow(user, conversationId, data);
+        const project = data.projects.find((p) => p.id === projectId);
+        if (!project || (unitId !== null && !project.units.some((u) => u.id === unitId))) {
+          throw new DemoApiError('not_found');
+        }
+        checkSend(data, user, row.id);
+        const card = propertyCard(project, unitId);
+        engine.sendOutbound(data, ctx, row, sender(user), propertyMessage(project, card), card);
+        engine.audit(
+          data,
+          ctx,
+          sender(user),
+          'property.shared',
+          engine.contactLabel(data, row.contactId),
+          card.title,
+        );
+      });
+    },
+
+    // DEMO-24: JPG/PNG up to 5 MB, PDF up to 10 MB, kept for this session only.
+    async uploadMedia(projectId: string, file: UploadFile & { url: string }): Promise<MediaFile> {
+      await guard('properties.manage');
+      if (!store.data.projects.some((p) => p.id === projectId)) throw new DemoApiError('not_found');
+      const kind = uploadKind(file);
+      if (uploadProblem(file) !== null || kind === null) throw new DemoApiError('invalid_body');
+      const media: MediaFile = {
+        id: newId(),
+        name: file.name,
+        kind,
+        sizeBytes: file.size,
+        url: file.url,
+        sessionOnly: true,
+      };
+      sessionMedia.set(projectId, [...(sessionMedia.get(projectId) ?? []), media]);
+      // Nothing saved changes; this only tells this tab's pages to load again.
+      store.write(() => undefined);
+      return media;
     },
 
     async listUsers(): Promise<UserView[]> {

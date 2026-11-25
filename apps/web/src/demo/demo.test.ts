@@ -17,6 +17,7 @@ import { canOpen, landingPath, navFor, PAGES, pageForPath } from './access.ts';
 import { createDemoApi, DemoApiError, memorySession, type DemoApi } from './api.ts';
 import { DemoBus, type BusEnvelope } from './bus.ts';
 import { TIMING, type EngineCtx } from './engine.ts';
+import { followUpTab, needsSummary, propertyCard, uploadProblem } from './rules.ts';
 import { buildSeed, DEMO_PASSWORD, isTestNumber } from './seed.ts';
 import { runDue } from './sim.ts';
 import { DemoData, DemoStore, memoryStorage, STORAGE_KEY, type KeyValueStorage } from './store.ts';
@@ -613,10 +614,249 @@ describe('demo inbox', () => {
   });
 });
 
+function leadOf(store: DemoStore, name: string) {
+  const contact = store.data.contacts.find((c) => c.name === name);
+  const lead = store.data.leads.find((l) => l.contactId === contact?.id);
+  if (!lead) throw new Error(`no lead for ${name}`);
+  return lead;
+}
+
+describe('demo leads, properties and follow-ups', () => {
+  it('DEMO-23 stage, needs and owner changes add history and audit rows; one open lead per customer', async () => {
+    const { api, store } = harness();
+    await login(api, 'priya');
+    const arjun = leadOf(store, 'Arjun Reddy');
+    await api.updateLeadStage(arjun.id, 'site_visit');
+    const history = await api.listLeadHistory(arjun.id);
+    expect(history.at(-1)).toMatchObject({
+      field: 'stage',
+      from: 'qualified',
+      to: 'site_visit',
+      actor: { name: 'Priya Nair' },
+    });
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'lead.stage',
+      detail: 'Qualified → Site visit',
+    });
+
+    await api.updateLeadNeeds(arjun.id, {
+      budgetMin: 8_000_000,
+      budgetMax: 9_000_000,
+      location: 'Whitefield',
+      propertyType: 'apartment',
+      bhk: 2,
+    });
+    expect((await api.listLeadHistory(arjun.id)).at(-1)).toMatchObject({
+      field: 'needs',
+      to: '₹80 L – ₹90 L · Whitefield · apartment · 2 BHK',
+    });
+    expect(
+      await rejection(
+        api.updateLeadNeeds(arjun.id, {
+          budgetMin: 9_000_000,
+          budgetMax: 8_000_000,
+          location: null,
+          propertyType: null,
+          bhk: null,
+        }),
+      ),
+    ).toBe('invalid_body');
+
+    // Converted closes the lead; it reopens while no other lead is open.
+    await api.updateLeadStage(arjun.id, 'converted');
+    expect((await api.getLead(arjun.id)).closedAt).not.toBeNull();
+    await api.updateLeadStage(arjun.id, 'negotiation');
+    expect((await api.getLead(arjun.id)).closedAt).toBeNull();
+
+    // Lakshmi's lead is converted; a new enquiry opens another, so the old one cannot reopen.
+    await login(api, 'neha');
+    const lakshmi = leadOf(store, 'Lakshmi Narayan');
+    const contact = store.data.contacts.find((c) => c.name === 'Lakshmi Narayan');
+    await api.simulateInbound({ phone: contact?.phone ?? '', text: 'Hi again' });
+    expect(await rejection(api.updateLeadStage(lakshmi.id, 'negotiation'))).toBe('wrong_state');
+    expect((await api.listOtherLeads(lakshmi.id)).map((l) => l.stage)).toEqual(['new']);
+
+    // The owner moves with history, and the chat follows; Employees cannot change owners.
+    const karan = store.data.users.find((u) => u.name === 'Karan Verma');
+    await api.assignLead(arjun.id, karan?.id ?? null);
+    expect((await api.getLead(arjun.id)).owner?.name).toBe('Karan Verma');
+    expect((await api.getConversation(arjun.conversationId ?? '')).assignee?.name).toBe(
+      'Karan Verma',
+    );
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'lead.owner',
+      detail: 'Priya Nair → Karan Verma',
+    });
+    await login(api, 'priya');
+    expect(await rejection(api.getLead(arjun.id))).toBe('not_found');
+    expect(await rejection(api.assignLead(leadOf(store, 'Meera Joshi').id, null))).toBe(
+      'forbidden',
+    );
+    expect(
+      needsSummary({
+        budgetMin: null,
+        budgetMax: null,
+        location: null,
+        propertyType: null,
+        bhk: null,
+      }),
+    ).toBe('Not known');
+  });
+
+  it('DEMO-24 a shared property is a normal outbound message with a card; upload rules', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'priya');
+    const meera = conversationOf(store, 'Meera Joshi');
+    const lakeview = store.data.projects.find((p) => p.name === 'Lakeview Towers');
+    const unit = lakeview?.units[0];
+    await api.shareProperty(meera, lakeview?.id ?? '', unit?.id ?? null);
+    const item = (await api.listItems(meera)).at(-1);
+    expect(item?.kind === 'message' && item.property).toMatchObject({
+      title: 'Lakeview Towers · T1-1501',
+      price: 13_500_000,
+    });
+    expect(item?.kind === 'message' && item.message).toMatchObject({
+      status: 'queued',
+      direction: 'outbound',
+      sender: { name: 'Priya Nair' },
+    });
+    expect(item?.kind === 'message' && item.message.body).toContain('Lakeview-Towers-brochure.pdf');
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'property.shared',
+      target: 'Meera Joshi',
+    });
+    advance(TIMING.deliveredMs);
+    expect(lastMessage(store, meera)?.status).toBe('delivered');
+
+    // The same send rules apply: connection, lock, scope.
+    await api.dropConnection();
+    expect(await rejection(api.shareProperty(meera, lakeview?.id ?? '', null))).toBe(
+      'wa_not_connected',
+    );
+    expect(
+      await rejection(
+        api.shareProperty(conversationOf(store, 'Rahul Sharma'), lakeview?.id ?? '', null),
+      ),
+    ).toBe('not_found');
+    // Without a unit the card gives the cheapest available price.
+    if (lakeview)
+      expect(propertyCard(lakeview, null)).toMatchObject({
+        unitId: null,
+        price: 13_500_000,
+        title: 'Lakeview Towers',
+      });
+
+    expect(
+      uploadProblem({ name: 'site.jpg', mime: 'image/jpeg', size: 4 * 1024 * 1024 }),
+    ).toBeNull();
+    expect(uploadProblem({ name: 'site.png', mime: 'image/png', size: 6 * 1024 * 1024 })).toBe(
+      'Images must be 5 MB or smaller.',
+    );
+    expect(
+      uploadProblem({ name: 'b.pdf', mime: 'application/pdf', size: 9 * 1024 * 1024 }),
+    ).toBeNull();
+    expect(uploadProblem({ name: 'b.pdf', mime: 'application/pdf', size: 11 * 1024 * 1024 })).toBe(
+      'PDFs must be 10 MB or smaller.',
+    );
+    expect(uploadProblem({ name: 'plan.docx', mime: 'application/msword', size: 1000 })).toBe(
+      'Only JPG, PNG or PDF files can be uploaded.',
+    );
+    expect(uploadProblem({ name: 'empty.png', mime: 'image/png', size: 0 })).toBe(
+      'The file is empty.',
+    );
+
+    const file = { name: 'tower.png', mime: 'image/png', size: 1000, url: 'blob:demo' };
+    expect(await rejection(api.uploadMedia(lakeview?.id ?? '', file))).toBe('forbidden');
+    await login(api, 'neha');
+    const media = await api.uploadMedia(lakeview?.id ?? '', file);
+    expect(media).toMatchObject({ kind: 'image', sessionOnly: true });
+    expect((await api.getProject(lakeview?.id ?? '')).photos.at(-1)?.name).toBe('tower.png');
+    // Not saved: the stored project is unchanged.
+    expect(
+      store.data.projects
+        .find((p) => p.id === lakeview?.id)
+        ?.photos.some((p) => p.name === 'tower.png'),
+    ).toBe(false);
+    expect(
+      await rejection(api.uploadMedia(lakeview?.id ?? '', { ...file, size: 6 * 1024 * 1024 })),
+    ).toBe('invalid_body');
+  });
+
+  it('DEMO-25 follow-up tabs; create, edit, complete; Run now (test) sends once', async () => {
+    const { api, store, advance } = harness();
+    expect(followUpTab({ dueAt: '2026-11-26T09:00:00.000Z', doneAt: null }, NOW)).toBe('overdue');
+    expect(followUpTab({ dueAt: '2026-11-26T11:00:00.000Z', doneAt: null }, NOW)).toBe('today');
+    expect(followUpTab({ dueAt: '2026-11-28T11:00:00.000Z', doneAt: null }, NOW)).toBe('upcoming');
+    expect(
+      followUpTab({ dueAt: '2026-11-20T11:00:00.000Z', doneAt: '2026-11-20T11:00:00.000Z' }, NOW),
+    ).toBe('done');
+
+    await login(api, 'priya');
+    const meeraLead = leadOf(store, 'Meera Joshi');
+    await api.createFollowUp({
+      leadId: meeraLead.id,
+      dueAt: '2026-11-27T05:00:00.000Z',
+      note: 'Call about parking',
+      autoReply: 'Hi Meera, a quick reminder about your visit.',
+    });
+    const created = (await api.listFollowUps()).find((f) => f.note === 'Call about parking');
+    expect(created).toMatchObject({ owner: { name: 'Priya Nair' }, sentAt: null, doneAt: null });
+    expect(
+      await rejection(
+        api.createFollowUp({
+          leadId: leadOf(store, 'Rahul Sharma').id,
+          dueAt: NOW.toISOString(),
+          note: 'x',
+          autoReply: null,
+        }),
+      ),
+    ).toBe('not_found');
+    expect(
+      await rejection(
+        api.createFollowUp({ leadId: meeraLead.id, dueAt: 'tomorrow', note: 'x', autoReply: null }),
+      ),
+    ).toBe('invalid_body');
+
+    await api.updateFollowUp(created?.id ?? '', {
+      dueAt: '2026-11-27T06:00:00.000Z',
+      note: 'Call about parking and loan',
+      autoReply: created?.autoReply ?? null,
+    });
+    expect((await api.listFollowUps()).find((f) => f.id === created?.id)?.note).toBe(
+      'Call about parking and loan',
+    );
+
+    // Run now (test): sent once into the chat, labelled as an auto-reply; the second run refuses.
+    await api.runFollowUp(created?.id ?? '');
+    const sent = lastMessage(store, meeraLead.conversationId ?? '');
+    expect(sent).toMatchObject({
+      body: 'Hi Meera, a quick reminder about your visit.',
+      sender: { name: 'Priya Nair · auto-reply (test)' },
+    });
+    expect(await rejection(api.runFollowUp(created?.id ?? ''))).toBe('already_sent');
+    const count = store.data.items.length;
+    advance(TIMING.readMinMs + TIMING.readSpreadMs);
+    expect(await rejection(api.runFollowUp(created?.id ?? ''))).toBe('already_sent');
+    expect(store.data.items).toHaveLength(count);
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'followup.sent',
+      target: 'Meera Joshi',
+    });
+
+    // One without an auto-reply cannot run; completing moves it to Done.
+    const noReply = (await api.listFollowUps()).find((f) => f.autoReply === null);
+    if (noReply) expect(await rejection(api.runFollowUp(noReply.id))).toBe('invalid_body');
+    await api.completeFollowUp(created?.id ?? '');
+    const done = (await api.listFollowUps()).find((f) => f.id === created?.id);
+    expect(done && followUpTab(done, NOW)).toBe('done');
+
+    // An Employee sees only her own follow-ups.
+    const karans = store.data.followUps.find((f) => f.ownerId !== created?.owner.id);
+    expect(await rejection(api.completeFollowUp(karans?.id ?? ''))).toBe('not_found');
+  });
+});
+
 describe('demo criteria built in later phases', () => {
-  it.todo('DEMO-23 lead changes add history and audit rows; one open lead per customer');
-  it.todo('DEMO-24 share a property into a chat; upload type and size rules');
-  it.todo('DEMO-25 follow-up tabs; Run now (test) sends once');
   it.todo('DEMO-26 campaign CSV validation, test-numbers-only, opt-outs, reasons');
   it.todo('DEMO-27 campaign progress with pause and resume, audited');
   it.todo('DEMO-28 opt-out list; STOP adds the number');

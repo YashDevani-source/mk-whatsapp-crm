@@ -3,9 +3,12 @@
 // events, which the caller sends once the write is saved.
 import {
   CLOSED_LEAD_STAGES,
+  LEAD_STAGE_LABELS,
   nextStatus,
   type AuditAction,
   type ConversationStatus,
+  type LeadNeeds,
+  type LeadStage,
   type MessageFailureReason,
   type MessageSender,
   type MessageView,
@@ -18,7 +21,8 @@ import {
 import { leadForContact, toConversation } from './views.ts';
 import type { BusEnvelope, DemoEventName, DemoEvents } from './bus.ts';
 import { DEMO_COMPANY_NUMBER } from './seed.ts';
-import type { ConversationRow, DemoData, SimTask } from './store.ts';
+import { needsSummary } from './rules.ts';
+import type { ConversationRow, DemoData, LeadRow, SimTask } from './store.ts';
 
 // DEMO-11 to DEMO-13, DEMO-16, DEMO-20, DEMO-22 timings.
 export const TIMING = {
@@ -65,6 +69,11 @@ export function audit(
   detail: string | null = null,
 ): void {
   data.audit.push({ id: ctx.newId(), actor, action, target, detail, at: iso(ctx) });
+}
+
+export function senderName(data: DemoData, userId: string): MessageSender | null {
+  const user = data.users.find((u) => u.id === userId);
+  return user ? { id: user.id, name: user.name } : null;
 }
 
 export function contactLabel(data: DemoData, contactId: string): string {
@@ -412,6 +421,104 @@ export function setStatus(
     `${STATUS_LABEL[before]} → ${STATUS_LABEL[status]}`,
   );
   pushConversation(data, ctx, row);
+}
+
+// ── Leads (DEMO-23) ─────────────────────────────────────────────────────────────────────
+
+function leadHistory(
+  data: DemoData,
+  ctx: EngineCtx,
+  lead: LeadRow,
+  actor: MessageSender,
+  field: 'stage' | 'owner' | 'needs',
+  from: string | null,
+  to: string | null,
+): void {
+  data.leadHistory.push({ id: ctx.newId(), leadId: lead.id, actor, field, from, to, at: iso(ctx) });
+  lead.updatedAt = iso(ctx);
+}
+
+const isClosed = (stage: LeadStage): boolean => CLOSED_LEAD_STAGES.includes(stage);
+
+// Converted and Lost close the lead; moving it back reopens it, unless the customer already has
+// another open lead (at most one open lead per customer).
+export function setLeadStage(
+  data: DemoData,
+  ctx: EngineCtx,
+  lead: LeadRow,
+  actor: MessageSender,
+  stage: LeadStage,
+): boolean {
+  if (lead.stage === stage) return true;
+  const reopening = isClosed(lead.stage) && !isClosed(stage);
+  const otherOpen = data.leads.some(
+    (l) => l.id !== lead.id && l.contactId === lead.contactId && !isClosed(l.stage),
+  );
+  if (reopening && otherOpen) return false;
+  leadHistory(data, ctx, lead, actor, 'stage', lead.stage, stage);
+  audit(
+    data,
+    ctx,
+    actor,
+    'lead.stage',
+    contactLabel(data, lead.contactId),
+    `${LEAD_STAGE_LABELS[lead.stage]} → ${LEAD_STAGE_LABELS[stage]}`,
+  );
+  lead.stage = stage;
+  lead.closedAt = isClosed(stage) ? iso(ctx) : null;
+  return true;
+}
+
+export function setLeadNeeds(
+  data: DemoData,
+  ctx: EngineCtx,
+  lead: LeadRow,
+  actor: MessageSender,
+  needs: LeadNeeds,
+): void {
+  const before = needsSummary(lead.needs);
+  const after = needsSummary(needs);
+  if (JSON.stringify(lead.needs) === JSON.stringify(needs)) return;
+  leadHistory(data, ctx, lead, actor, 'needs', before, after);
+  audit(data, ctx, actor, 'lead.needs', contactLabel(data, lead.contactId), after);
+  lead.needs = needs;
+}
+
+// The chat follows its open lead, so whoever owns the lead can also work the chat.
+export function setLeadOwner(
+  data: DemoData,
+  ctx: EngineCtx,
+  lead: LeadRow,
+  actor: MessageSender,
+  ownerId: string | null,
+): void {
+  if (lead.ownerId === ownerId) return;
+  const name = (id: string | null): string =>
+    data.users.find((u) => u.id === id)?.name ?? 'Unassigned';
+  leadHistory(
+    data,
+    ctx,
+    lead,
+    actor,
+    'owner',
+    lead.ownerId ? name(lead.ownerId) : null,
+    ownerId ? name(ownerId) : null,
+  );
+  audit(
+    data,
+    ctx,
+    actor,
+    'lead.owner',
+    contactLabel(data, lead.contactId),
+    `${name(lead.ownerId)} → ${name(ownerId)}`,
+  );
+  lead.ownerId = ownerId;
+  const row = data.conversations.find((c) => c.id === lead.conversationId);
+  if (row && !isClosed(lead.stage) && row.assigneeId !== ownerId) {
+    row.assigneeId = ownerId;
+    data.locks = data.locks.filter((l) => l.conversationId !== row.id || l.holder.id === ownerId);
+    pushConversation(data, ctx, row);
+  }
 }
 
 // ── Reply lock (DEMO-20) ────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 Status: approved
 
-Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: phases 1 and 2 built (DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20, DEMO-22 have passing tests; DEMO-02, DEMO-14, DEMO-21 are manual); phases 3 to 5 open.
+Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: phases 1 to 3 built (DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20, DEMO-22 to DEMO-25 have passing tests; DEMO-02, DEMO-14, DEMO-21 are manual); phases 4 and 5 open.
 
 Drafted 2026-11-26 (session 9) after the user changed the flow: "complete this project with dummy data and dummy api responses with dummy logins and dummy qrs for prototype". The user chose (Decision 1): a mock mode inside the web app, a light spec with smoke tests, react-router with plain CSS, and live activity by buttons plus a gentle auto mode.
 
@@ -175,6 +175,11 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 21. Phase 2: cross-tab sync. The store remembers the saved text it last read; `sync()` reloads only when the saved text differs. Every demo api call syncs first, the simulator syncs before each round, and each tab also syncs on the `storage` event and every 1 s (headless Chrome did not always deliver the `storage` event to background tabs). A write always starts from the newest saved copy and, when a change throws half way, drops the in-memory copy.
 22. Phase 2: Retry on a failed message sends a new message with the same text (and property card); the failed one stays failed, so status only moves forward. Assigning a chat also moves its open lead to the new owner (with a history row), and a reply to a closed chat reopens it; a customer whose leads are all closed gets a new New lead. A STOP message adds the number to the opt-out list (DEMO-28's automatic part).
 23. Phase 2: errors from actions show as toasts; a new customer message the user may see shows a toast with "Open chat" unless that chat is open. New error code `wrong_state` (409) for actions in the wrong connection or message state.
+24. Phase 3: changing a lead's owner also assigns its chat while the lead is open (and assigning a chat moves its open lead, Decision 22), so an Employee always owns both or neither. Moving a closed lead back to an open stage is refused (`wrong_state`) when the customer already has another open lead.
+25. Phase 3: "Run now (test)" sends the auto-reply into the lead's chat as an outbound message whose sender reads "<owner> · auto-reply (test)", sets `sentAt`, and writes a `followup.sent` audit row; a second run answers `already_sent`. It obeys the same send rules as a reply (connection, reply lock). A sent auto-reply can no longer be edited. Running does not complete the follow-up; "Complete" does.
+26. Phase 3: uploads are checked in the page and again in the demo api (`uploadProblem`: JPG/PNG up to 5 MB, PDF up to 10 MB, not empty). The file becomes an object URL held in the demo api's memory for that tab (`sessionMedia`), never in `localStorage`, and is tagged "Session only". Only Managers and the Super Admin can upload. Seeded brochures are tagged "Demo file" and do not download.
+27. Phase 3: lead budgets are typed in lakh (₹ L) and stored in whole rupees. Follow-up tabs: Done (has `doneAt`), Overdue (due before now), Today (later today, local time), Upcoming. `FollowUpInput` joins the draft contracts in `packages/shared/src/crm.ts`.
+28. Phase 3: toasts moved to the bottom left, beside the sidebar, after the top right covered page buttons and the bottom right covered Send.
 
 ## Build phases
 

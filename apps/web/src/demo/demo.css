@@ -1214,8 +1214,8 @@ tbody tr:hover {
 
 .toasts {
   position: fixed;
-  top: 4.75rem;
-  right: 1.25rem;
+  bottom: 1.25rem;
+  left: 15.25rem;
   z-index: 60;
   display: grid;
   gap: 0.5rem;
@@ -1249,6 +1249,264 @@ tbody tr:hover {
   color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Lists, filters, boards, details (phase 3) */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.filters input[type='search'] {
+  min-width: 16rem;
+}
+
+.narrow {
+  width: 5.5rem;
+}
+
+.small-seg {
+  grid-template-columns: repeat(2, auto);
+}
+
+.crumbs {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+.board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(13rem, 1fr);
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.board-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 12rem;
+  padding: 0.6rem;
+  border-radius: var(--radius);
+  background: var(--neutral);
+}
+
+.board-col header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.board-card {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+
+.board-card:hover {
+  border-color: var(--brand);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1rem;
+  align-items: start;
+}
+
+.detail-main,
+.detail-side {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.row-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.75rem;
+}
+
+.static-field {
+  padding: 0.5rem 0;
+  font-weight: 400;
+}
+
+.plain-list {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tabs-row {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-btn {
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  border-bottom-color: var(--brand);
+  color: var(--text);
+}
+
+.tab-btn.tab-overdue .count {
+  color: var(--error-text);
+  font-weight: 700;
+}
+
+.overdue {
+  margin-right: 0.4rem;
+  color: var(--error-text);
+  font-weight: 600;
+}
+
+td .chip {
+  margin-left: 0.3rem;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.auto-reply {
+  white-space: nowrap;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+
+.project-card:hover {
+  border-color: var(--brand);
+}
+
+.project-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.project-card-body {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem 0.9rem 1rem;
+}
+
+.project-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.gallery-main {
+  width: 100%;
+  max-height: 22rem;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.gallery-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.6rem 0 0.4rem;
+}
+
+.thumb {
+  position: relative;
+  width: 6rem;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.thumb.active {
+  border-color: var(--brand);
+}
+
+.thumb img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
+.thumb-tag {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 60%);
+  color: white;
+  font-size: 0.65rem;
+}
+
+.table-wrap.flat {
+  border: 0;
+}
+
+@media (max-width: 1100px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1200px) {

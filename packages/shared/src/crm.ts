@@ -271,3 +271,12 @@ export const AuditEntry = z.object({
   at: At,
 });
 export type AuditEntry = z.infer<typeof AuditEntry>;
+
+// Body of "create follow-up" (DEMO-25). Editing sends the same fields except `leadId`.
+export const FollowUpInput = z.object({
+  leadId: z.uuid(),
+  dueAt: At,
+  note: z.string().trim().min(1).max(500),
+  autoReply: z.string().trim().min(1).max(4096).nullable(),
+});
+export type FollowUpInput = z.infer<typeof FollowUpInput>;
