@@ -6,3 +6,4 @@ export * from './health.ts';
 export * from './rooms.ts';
 export * from './messages.ts';
 export * from './wa.ts';
+export * from './crm.ts';

@@ -2,7 +2,22 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-26):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms), Spec 2 (WA: the WhatsApp connection) and Spec 3 (MSG: receiving and sending text messages) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, a Messages page for the Super Admin and Managers, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Customer messages appear live; replies go through a queue and show only the ticks WhatsApp reports. The real test phone check for WA (WA-27) passed; the one for MSG (MSG-28) is in progress.
+**Current state (2026-11-26):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms), Spec 2 (WA: the WhatsApp connection) and Spec 3 (MSG: receiving and sending text messages) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, a Messages page for the Super Admin and Managers, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Customer messages appear live; replies go through a queue and show only the ticks WhatsApp reports. The real test phone check for WA (WA-27) passed; the one for MSG (MSG-28) is open. Spec 4 (DEMO) adds a browser-only demo mode on dummy data (below); phase 1 of 5 is built.
+
+## Demo mode (prototype, no backend needed)
+
+Spec 4 (`DEMO`, `docs/specs/004-demo.md`) turns the web app into a clickable prototype that runs entirely in the browser on dummy data for "Skyline Realty". Nothing reaches WhatsApp, Postgres or Redis, and every screen is tagged "Demo · simulated".
+
+```bash
+pnpm install
+pnpm --filter @crm/web dev:demo       # http://localhost:5174 (no Docker, no .env)
+pnpm --filter @crm/web build:demo     # static site in apps/web/dist
+pnpm --filter @crm/web preview:demo   # serve that build on http://localhost:5174
+```
+
+Log in with any demo account on the login page ("Log in as"), password `demo1234`: Aarav Shah (Super Admin), Neha Kapoor and Rohan Mehta (Managers), Priya Nair, Karan Verma, Sneha Iyer and Vikram Rao (Employees). Ananya Das is deactivated and cannot log in. Each browser tab keeps its own login, so two windows can be two users. The data lives in `localStorage` and can be reset.
+
+Built so far (phase 1 of 5): demo logins, the role-based sidebar and page guard, the simulated WhatsApp banner, and the dummy dataset and demo api. The screens arrive in phases 2 to 4. Lead stage names and the reply-lock rules in demo mode are placeholders until the LEAD and INB specs.
 
 ## What we did in session 1
 

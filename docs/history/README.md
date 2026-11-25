@@ -26,3 +26,4 @@ One file per working session, or per build phase when a spec is built in phases 
 | 2026-11-26 | [2026-11-26-msg-phase-4.md](./2026-11-26-msg-phase-4.md) | MSG phase 4 of 5 (worker sending and status: MSG-14 to MSG-22, MSG-26) | Send queue processor, forward-only status; 216 pass, 9 todo |
 | 2026-11-26 | [2026-11-26-msg-phase-5.md](./2026-11-26-msg-phase-5.md) | MSG phase 5 of 5 (Baileys messages, web page) | MSG built; MSG-28 phone check pending; 230 pass, 7 todo |
 | 2026-11-26 | [2026-11-26-msg-phone-check.md](./2026-11-26-msg-phone-check.md) | Lock losses explained (Mac sleep); arena skipped; MSG-28 phone check started | Baileys dev stack connected without QR; waiting for the phone steps |
+| 2026-11-26 | [2026-11-26-demo-phase-1.md](./2026-11-26-demo-phase-1.md) | Flow change to a demo prototype; Spec 4 (DEMO) approved; DEMO phase 1 of 5 | Demo logins, shell, role guard, dataset and demo api; 241 pass, 32 todo |

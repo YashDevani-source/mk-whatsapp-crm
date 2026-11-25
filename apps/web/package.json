@@ -6,14 +6,19 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --reporter=verbose",
-    "dev": "vite"
+    "dev": "vite",
+    "dev:demo": "vite --mode demo --port 5174",
+    "build:demo": "vite build --mode demo",
+    "preview:demo": "vite preview --mode demo --port 5174"
   },
   "dependencies": {
     "@crm/shared": "workspace:*",
     "qrcode": "1.5.4",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "socket.io-client": "4.8.4"
+    "react-router": "8.5.3",
+    "socket.io-client": "4.8.4",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/qrcode": "1.5.6",

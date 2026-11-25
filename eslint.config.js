@@ -51,7 +51,16 @@ const restrictImport = {
 const boundaries = { rules: { 'restrict-import': restrictImport } };
 
 export default [
-  { ignores: ['**/node_modules/**', '**/dist/**', 'packages/db/src/generated/**'] },
+  // .agents and .aider-desk are local AI-tool folders, not project code.
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'packages/db/src/generated/**',
+      '.agents/**',
+      '.aider-desk/**',
+    ],
+  },
   ...tseslint.configs.recommended,
   { rules: { '@typescript-eslint/no-explicit-any': 'error' } },
   {
