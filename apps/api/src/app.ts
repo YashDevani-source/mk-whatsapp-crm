@@ -3,6 +3,8 @@ import express, { type ErrorRequestHandler, type Express, type Router } from 'ex
 import { createAccess, type Access, type AccessDeps } from './access.ts';
 import { authRouter } from './auth.ts';
 import { healthRouter } from './health.ts';
+import { originGuard } from './origin.ts';
+import { waRouter } from './wa.ts';
 
 export type AppDeps = AccessDeps;
 
@@ -33,9 +35,12 @@ const errorHandler: ErrorRequestHandler = (error: unknown, _req, res, next) => {
 export function createApp(deps: AppDeps, options: AppOptions = {}): Express {
   const app = express();
   const access = createAccess(deps);
+  // No CORS middleware: same origin through the proxy (WA Decision 5).
+  app.use(originGuard(deps.config.allowedOrigins));
   app.use(express.json({ limit: '16kb' }));
   app.use(healthRouter(deps, access));
   app.use('/auth', authRouter(deps, access));
+  app.use('/wa', waRouter(deps, access));
   for (const build of options.extraRouters ?? []) app.use(build(access));
   app.use((_req, res) => {
     const body: ApiError = { error: 'not_found' };

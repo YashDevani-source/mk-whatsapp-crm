@@ -12,6 +12,7 @@ import { vi } from 'vitest';
 import { ACCESS, type AccessGuard } from './access.ts';
 import { createApp, type AppOptions } from './app.ts';
 import { SESSION_COOKIE, type AuthConfig } from './config.ts';
+import { startEventRelay } from './events.ts';
 import { createRedis } from './redis.ts';
 import { createSockets, type CrmServer } from './sockets.ts';
 
@@ -21,6 +22,7 @@ export const TEST_DATABASE_URL = `postgresql://crm:crm@localhost:${PG_PORT}/crm_
 // Redis db 1, so test sessions and counters never land in the dev db 0.
 export const TEST_REDIS_URL = `redis://localhost:${REDIS_PORT}/1`;
 export const TEST_PASSWORD = 'fnd-test-password-7f3c';
+export const TEST_ORIGIN = 'http://localhost:5173';
 
 export function testConfig(overrides: Partial<AuthConfig> = {}): AuthConfig {
   return {
@@ -29,6 +31,7 @@ export function testConfig(overrides: Partial<AuthConfig> = {}): AuthConfig {
     loginMaxAttempts: 5,
     loginWindowSeconds: 60,
     secureCookie: false,
+    allowedOrigins: [TEST_ORIGIN],
     ...overrides,
   };
 }
@@ -39,6 +42,8 @@ export interface TestContext {
   redis: Redis;
   // Not attached to a server until `listen` (socket tests).
   io: CrmServer;
+  // Resolves once the event relay is subscribed to `crm:events` (WA tests).
+  relayReady: Promise<unknown>;
   close: () => Promise<void>;
 }
 
@@ -46,15 +51,22 @@ export function testApp(config: Partial<AuthConfig> = {}, options: AppOptions = 
   const db = createDb(TEST_DATABASE_URL);
   const redis = createRedis(TEST_REDIS_URL);
   const deps = { db, redis, config: testConfig(config) };
+  const subscriber = createRedis(TEST_REDIS_URL);
   const { io, control } = createSockets(deps);
+  // Most test files never wait for the relay and may close before it has subscribed. The handler
+  // keeps that from becoming an unhandled rejection; `relayReady` still rejects for those that wait.
+  const relayReady = startEventRelay(subscriber, io);
+  relayReady.catch(() => undefined);
   return {
     app: createApp({ ...deps, sockets: control }, options),
     db,
     redis,
     io,
+    relayReady,
     close: async () => {
       await db.$disconnect();
       redis.disconnect();
+      subscriber.disconnect();
     },
   };
 }

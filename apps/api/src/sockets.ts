@@ -1,5 +1,5 @@
 import { ROOMS, userRoom, type Room, type SessionUser, type WaQr, type WaState } from '@crm/shared';
-import { Server, type DefaultEventsMap } from 'socket.io';
+import { Server, type DefaultEventsMap, type Socket } from 'socket.io';
 import {
   authenticate,
   checkSession,
@@ -7,6 +7,8 @@ import {
   type Authenticated,
   type CoreDeps,
 } from './access.ts';
+import { originAllowed } from './origin.ts';
+import { readWaQr, readWaState } from './wa.ts';
 
 // Kept on each socket by the handshake (FND-15).
 export type SocketData = Authenticated;
@@ -18,6 +20,7 @@ export interface ServerEvents {
 }
 
 export type CrmServer = Server<DefaultEventsMap, ServerEvents, DefaultEventsMap, SocketData>;
+type CrmSocket = Socket<DefaultEventsMap, ServerEvents, DefaultEventsMap, SocketData>;
 
 export interface SocketControl {
   // Disconnects the sockets opened with this session (logout).
@@ -47,7 +50,13 @@ function logFailure(what: string, error: unknown): void {
 // The Socket.io server, not yet attached to an HTTP server (`io.attach`). The handshake uses the
 // same session cookie as HTTP (FND Decision 16).
 export function createSockets(core: CoreDeps): Sockets {
-  const io: CrmServer = new Server({ serveClient: false });
+  // WA-21: a handshake from a foreign origin is refused before the session is looked at.
+  const io: CrmServer = new Server({
+    serveClient: false,
+    allowRequest: (req, callback) => {
+      callback(null, originAllowed(req.headers.origin, core.config.allowedOrigins));
+    },
+  });
 
   const control: SocketControl = {
     endSession: async (userId, sessionId) => {
@@ -75,8 +84,23 @@ export function createSockets(core: CoreDeps): Sockets {
     }
   });
 
+  // WA-16: a new socket gets the current connection state, and a Super Admin the current QR.
+  async function sendWaState(socket: CrmSocket, rooms: readonly Room[]): Promise<void> {
+    try {
+      const state = await readWaState(core.redis);
+      socket.emit('wa.state', state);
+      if (state.state !== 'qr_required' || !rooms.includes(ROOMS.admin)) return;
+      const qr = await readWaQr(core.redis);
+      if (qr) socket.emit('wa.qr', qr);
+    } catch (error) {
+      logFailure('initial WhatsApp state', error);
+    }
+  }
+
   io.on('connection', (socket) => {
-    void socket.join(roomsFor(socket.data.user));
+    const rooms = roomsFor(socket.data.user);
+    void socket.join(rooms);
+    void sendWaState(socket, rooms);
 
     // FND-20: every incoming event re-checks the session and the user first, so a logged-out,
     // expired or deactivated session is disconnected on its next event. No event joins a room:

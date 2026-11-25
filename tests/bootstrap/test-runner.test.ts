@@ -10,7 +10,8 @@ describe('test runner', () => {
 
   it('BOOT-08 running the package tests names all five packages and exits 0', () => {
     // Calls `pnpm -r test` directly: the root `pnpm test` contains this very test, so calling it would recurse.
-    const r = pnpm(['-r', 'test']);
+    // One package at a time, as the root script does (WA Decision 27): the packages share crm_test.
+    const r = pnpm(['-r', '--workspace-concurrency=1', 'test']);
     expect(r.status, r.output).toBe(0);
     for (const pkg of PACKAGES) {
       expect(r.output, pkg.name).toContain(pkg.name);

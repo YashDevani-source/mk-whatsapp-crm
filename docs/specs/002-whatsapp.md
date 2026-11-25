@@ -170,7 +170,17 @@ Made during WA phase 2 (2026-11-25), within the approved build:
 25. Worker tests use Redis **db 2** and `crm_test` (`apps/worker/src/test-support.ts`), a vitest `globalSetup` that migrates `crm_test`, and `fileParallelism: false`. The lock tests WA-03 and WA-05 spawn real `main.ts` processes; the others run the manager in-process with short timings (TTL 600 ms, backoff 50 to 200 ms). FND-02's spawned worker moved to Redis db 2 as well, because the worker now takes the lock at startup.
 26. `tsconfig.base.json` now has `erasableSyntaxOnly`: Node's type stripping rejected a constructor parameter property at runtime, which typecheck had passed. Typecheck now catches such syntax.
 27. The root `pnpm test` runs package tests one package at a time (`pnpm -r --workspace-concurrency=1 test`). With the worker tests spawning processes beside the api tests, FND-03's 2 s health check timed out once (the open item in CLAUDE.md). The packages also share `crm_test`.
-28. The FND-05 raw-SQL tests now truncate after themselves. Vitest orders files by cached duration, so when `schema.test.ts` ran after `seed.test.ts`, its user with the password hash `x` reached the api tests and failed FND-18. This was an FND isolation gap, found by the new order.
+28. The FND-05 raw-SQL tests now truncate after themselves.
+
+Made during WA phase 3 (2026-11-25), within the approved build:
+
+29. Api layout: `origin.ts` (`originAllowed`, `originGuard`), `events.ts` (`startEventRelay`), `wa.ts` (`waRouter`, `readWaState`, `readWaQr`). `AuthConfig` gains `allowedOrigins`, normalised to bare origins (`new URL(o).origin`), so a trailing slash in `ALLOWED_ORIGINS` still matches the browser's `Origin` header.
+30. The origin guard runs before the body parser and every router. GET and HEAD always pass; any other method with a foreign `Origin` gets 403 `forbidden_origin`, including OPTIONS. The socket check is Socket.io's `allowRequest`, so a foreign handshake never reaches the session lookup.
+31. `POST /wa/qr` and `POST /wa/logout` read `wa:state`, answer 409 `invalid_state` unless it is `reconnect_required` (qr) or `connected` (logout), write the audit row (`meta: { provider }`, actor, `req.ip`), then publish the `WaCommand`. A missing state key counts as `worker_offline` and gives 409. Only accepted requests are audited.
+32. On connect, each socket gets `wa.state` from `wa:state` (or `worker_offline`). A socket in `admin` also gets `wa:qr`, but only while the state is `qr_required`, so a stale QR is never shown.
+33. The relay drops a bad event and logs `api: dropped event (<error name>)`, never the content.
+34. Api test support starts the relay for every `testApp`, on its own Redis connection. The promise gets a no-op handler, so a test file that closes before the subscription finishes does not raise an unhandled rejection. BOOT-08's own `pnpm -r test` run now also uses `--workspace-concurrency=1` (Decision 27); in parallel the api and worker suites overlapped and exposed that rejection.
+35. The WA-15 and WA-21 tests were checked against mutations: sending `wa.qr` to `global`, and allowing every origin. Each made its test fail. Vitest orders files by cached duration, so when `schema.test.ts` ran after `seed.test.ts`, its user with the password hash `x` reached the api tests and failed FND-18. This was an FND isolation gap, found by the new order.
 
 ## Build phases
 

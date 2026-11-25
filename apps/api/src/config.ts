@@ -11,6 +11,8 @@ export interface AuthConfig {
   loginWindowSeconds: number;
   // Secure cookie flag: on in production, off on http://localhost.
   secureCookie: boolean;
+  // Browser origins allowed to open sockets and send non-GET requests (WA-21, WA-22).
+  allowedOrigins: readonly string[];
 }
 
 export function authConfigFrom(env: ApiEnv): AuthConfig {
@@ -20,5 +22,7 @@ export function authConfigFrom(env: ApiEnv): AuthConfig {
     loginMaxAttempts: env.LOGIN_MAX_ATTEMPTS,
     loginWindowSeconds: env.LOGIN_WINDOW_SECONDS,
     secureCookie: env.NODE_ENV === 'production',
+    // As browsers send them in the Origin header: scheme, host and port, no path or slash.
+    allowedOrigins: env.ALLOWED_ORIGINS.map((o) => new URL(o).origin),
   };
 }
