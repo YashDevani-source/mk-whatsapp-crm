@@ -17,6 +17,16 @@ import { canOpen, landingPath, navFor, PAGES, pageForPath } from './access.ts';
 import { createDemoApi, DemoApiError, memorySession, type DemoApi } from './api.ts';
 import { DemoBus, type BusEnvelope } from './bus.ts';
 import { TIMING, type EngineCtx } from './engine.ts';
+import {
+  CAMPAIGN_STEP_MS,
+  checkRecipients,
+  normalizePhone,
+  parseCsv,
+  readCampaignCsv,
+  renderMessage,
+  SAMPLE_CSV,
+} from './campaigns.ts';
+import { employeeReportCsv, filterAudit, toCsv } from './reports.ts';
 import { followUpTab, needsSummary, propertyCard, uploadProblem } from './rules.ts';
 import { buildSeed, DEMO_PASSWORD, isTestNumber } from './seed.ts';
 import { runDue } from './sim.ts';
@@ -856,14 +866,326 @@ describe('demo leads, properties and follow-ups', () => {
   });
 });
 
-describe('demo criteria built in later phases', () => {
-  it.todo('DEMO-26 campaign CSV validation, test-numbers-only, opt-outs, reasons');
-  it.todo('DEMO-27 campaign progress with pause and resume, audited');
-  it.todo('DEMO-28 opt-out list; STOP adds the number');
-  it.todo('DEMO-29 users: add, role, deactivate with history kept; Manager limits');
-  it.todo('DEMO-30 dashboard numbers, per-employee table, filters, CSV export');
-  it.todo('DEMO-31 audit log is read-only, newest first, filterable');
+describe('demo campaigns, users, reports, audit', () => {
+  const sampleRows = () => {
+    const csv = readCampaignCsv(SAMPLE_CSV);
+    if (!csv.ok) throw new Error(csv.error);
+    return csv.rows;
+  };
+
+  it('DEMO-26 the CSV is parsed and checked; every skipped row has a reason; nothing sends at once', async () => {
+    expect(
+      parseCsv('phone,name\r\n"+1 202 555 0101","Shah, Rahul"\r\n"a ""quoted"" one",x\n\n'),
+    ).toEqual([
+      ['phone', 'name'],
+      ['+1 202 555 0101', 'Shah, Rahul'],
+      ['a "quoted" one', 'x'],
+    ]);
+    expect(readCampaignCsv('')).toEqual({ ok: false, error: 'The file is empty.' });
+    expect(readCampaignCsv('phone,name\n')).toEqual({
+      ok: false,
+      error: 'The file has a header row but no contacts.',
+    });
+    expect(readCampaignCsv('mobile\n+12025550101')).toEqual({
+      ok: false,
+      error: 'The first row must have a "phone" column.',
+    });
+    const big = ['phone', ...Array.from({ length: 1001 }, () => '+12025550101')].join('\n');
+    expect(readCampaignCsv(big)).toMatchObject({
+      ok: false,
+      error: 'At most 1,000 rows per campaign.',
+    });
+    expect(normalizePhone('+1 (202) 555-0101')).toBe('+12025550101');
+    expect(normalizePhone('0091 98765 43210')).toBe('+919876543210');
+    expect(normalizePhone('98765')).toBeNull();
+
+    const optedOut = new Set(['+12025550124']);
+    const checked = checkRecipients(sampleRows(), { testOnly: true, optedOut });
+    expect(checked.map((r) => r.reason)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'opted_out',
+      'not_test_number',
+      'duplicate',
+      'invalid_phone',
+    ]);
+    expect(checked.every((r) => (r.status === 'skipped') === (r.reason !== null))).toBe(true);
+    // With "Test numbers only" off, the outside number passes the checks; opt-outs never do.
+    const open = checkRecipients(sampleRows(), { testOnly: false, optedOut });
+    expect(open[7]?.status).toBe('pending');
+    expect(open[6]?.reason).toBe('opted_out');
+    expect(renderMessage('Hi {name}!', null)).toBe('Hi there!');
+
+    const { api, store } = harness();
+    await login(api, 'karan');
+    const input = {
+      name: 'Site visit weekend',
+      message: 'Hi {name}, visit us this Saturday. Reply STOP to opt out.',
+      testOnly: true,
+      rows: sampleRows(),
+    };
+    expect(await rejection(api.createCampaign(input))).toBe('forbidden');
+    await login(api, 'neha');
+    const id = await api.createCampaign(input);
+    const campaign = await api.getCampaign(id);
+    expect(campaign).toMatchObject({
+      status: 'running',
+      testOnly: true,
+      createdBy: { name: 'Neha Kapoor' },
+    });
+    expect(campaign.recipients.filter((r) => r.status === 'pending')).toHaveLength(6);
+    expect(campaign.recipients.filter((r) => r.status === 'sent')).toHaveLength(0);
+    expect(store.data.audit.slice(-2).map((a) => a.action)).toEqual([
+      'campaign.created',
+      'campaign.started',
+    ]);
+    // A file where nothing can be sent is refused.
+    expect(
+      await rejection(
+        api.createCampaign({
+          ...input,
+          rows: [{ phone: '+919876543210', name: null, fields: {} }],
+        }),
+      ),
+    ).toBe('invalid_body');
+  });
+
+  it('DEMO-27 sending is one message every ~2 s, with pause and resume, audited', async () => {
+    const { api, store, advance } = harness();
+    await login(api, 'neha');
+    const id = await api.createCampaign({
+      name: 'Slow send',
+      message: 'Hi {name}',
+      testOnly: true,
+      rows: sampleRows(),
+    });
+    const sent = async () =>
+      (await api.getCampaign(id)).recipients.filter((r) => r.status === 'sent').length;
+    advance(CAMPAIGN_STEP_MS);
+    expect(await sent()).toBe(1);
+    advance(CAMPAIGN_STEP_MS);
+    expect(await sent()).toBe(2);
+
+    await api.pauseCampaign(id);
+    advance(CAMPAIGN_STEP_MS * 5);
+    expect(await sent()).toBe(2);
+    expect(await rejection(api.pauseCampaign(id))).toBe('wrong_state');
+    // Opting out mid-campaign is honoured at that recipient's turn.
+    await api.addOptOut('+1 202 555 0105');
+    await api.resumeCampaign(id);
+    await api.pauseCampaign(id);
+    await api.resumeCampaign(id);
+    advance(CAMPAIGN_STEP_MS);
+    expect(await sent()).toBe(3);
+    // While WhatsApp is down the campaign waits.
+    await api.dropConnection();
+    advance(CAMPAIGN_STEP_MS * 2);
+    expect(await sent()).toBe(3);
+    advance(TIMING.reconnectMs + TIMING.connectMs);
+    advance(CAMPAIGN_STEP_MS * 6);
+    const done = await api.getCampaign(id);
+    expect(done.status).toBe('completed');
+    expect(done.recipients.find((r) => r.phone === '+12025550105')).toMatchObject({
+      status: 'skipped',
+      reason: 'opted_out',
+    });
+    expect(done.recipients.filter((r) => r.status === 'sent')).toHaveLength(5);
+    const actions = store.data.audit.filter((a) => a.target === 'Slow send').map((a) => a.action);
+    expect(actions).toEqual([
+      'campaign.created',
+      'campaign.started',
+      'campaign.paused',
+      'campaign.resumed',
+      'campaign.paused',
+      'campaign.resumed',
+      'campaign.completed',
+    ]);
+  });
+
+  it('DEMO-28 the opt-out list: add and remove by hand; a STOP message adds the number', async () => {
+    const { api, store } = harness();
+    await login(api, 'rohan');
+    await api.addOptOut('+1 202 555 0110');
+    expect((await api.listOptOuts())[0]).toMatchObject({
+      phone: '+12025550110',
+      reason: 'manual',
+      addedBy: { name: 'Rohan Mehta' },
+    });
+    expect(await rejection(api.addOptOut('12345'))).toBe('invalid_body');
+    await api.removeOptOut('+12025550110');
+    expect((await api.listOptOuts()).some((o) => o.phone === '+12025550110')).toBe(false);
+    expect(store.data.audit.at(-1)?.action).toBe('optout.removed');
+    const meera = store.data.contacts.find((c) => c.name === 'Meera Joshi');
+    await api.simulateInbound({ phone: meera?.phone ?? '', text: 'stop' });
+    expect((await api.listOptOuts())[0]).toMatchObject({
+      phone: meera?.phone,
+      reason: 'customer_stop',
+    });
+    await login(api, 'priya');
+    expect(await rejection(api.listOptOuts())).toBe('forbidden');
+  });
+
+  it('DEMO-29 users: add, change role, deactivate with history kept; Manager limits', async () => {
+    const { api, store } = harness();
+    await login(api, 'neha');
+    const added = await api.createUser({
+      name: 'Ravi Kumar',
+      email: 'Ravi@Skyline.test',
+      role: 'EMPLOYEE',
+    });
+    expect(added).toMatchObject({ email: 'ravi@skyline.test', active: true });
+    expect((await api.login('ravi@skyline.test', DEMO_PASSWORD)).name).toBe('Ravi Kumar');
+    await login(api, 'neha');
+    expect(
+      await rejection(api.createUser({ name: 'X', email: 'ravi@skyline.test', role: 'EMPLOYEE' })),
+    ).toBe('invalid_body');
+    expect(
+      await rejection(
+        api.createUser({ name: 'Boss', email: 'boss@skyline.test', role: 'SUPER_ADMIN' }),
+      ),
+    ).toBe('forbidden');
+    const aarav = store.data.users.find((u) => u.role === 'SUPER_ADMIN');
+    expect(await rejection(api.changeRole(aarav?.id ?? '', 'MANAGER'))).toBe('forbidden');
+    expect(await rejection(api.deactivateUser(aarav?.id ?? ''))).toBe('forbidden');
+    await api.changeRole(added.id, 'MANAGER');
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'user.role',
+      detail: 'EMPLOYEE → MANAGER',
+    });
+
+    // Deactivating Karan: his open chats and leads become unassigned; his messages keep his name.
+    const karan = store.data.users.find((u) => u.name === 'Karan Verma');
+    const kavya = conversationOf(store, 'Kavya Menon');
+    expect(
+      store.data.items.some(
+        (i) => i.kind === 'message' && i.message.sender?.name === 'Karan Verma',
+      ),
+    ).toBe(true);
+    await api.deactivateUser(karan?.id ?? '');
+    expect((await api.getConversation(kavya)).assignee).toBeNull();
+    expect((await api.getLead(leadOf(store, 'Kavya Menon').id)).owner).toBeNull();
+    expect(
+      store.data.items.some(
+        (i) => i.kind === 'message' && i.message.sender?.name === 'Karan Verma',
+      ),
+    ).toBe(true);
+    expect(store.data.audit.at(-1)).toMatchObject({
+      action: 'user.deactivated',
+      target: 'Karan Verma',
+    });
+    expect(await rejection(login(api, 'karan'))).toBe('invalid_credentials');
+
+    // A deactivated user's open session (another tab) ends at its next call.
+    const snehaTab = createDemoApi({
+      store,
+      bus: new DemoBus(),
+      session: memorySession(),
+      delay: () => Promise.resolve(),
+    });
+    await snehaTab.login('sneha@skyline.test', DEMO_PASSWORD);
+    const sneha = store.data.users.find((u) => u.name === 'Sneha Iyer');
+    await login(api, 'aarav');
+    await api.deactivateUser(sneha?.id ?? '');
+    expect(await snehaTab.me()).toBeNull();
+    // Not yourself, and never the last Super Admin.
+    expect(await rejection(api.deactivateUser(aarav?.id ?? ''))).toBe('wrong_state');
+    await login(api, 'priya');
+    expect(
+      await rejection(api.createUser({ name: 'Y', email: 'y@skyline.test', role: 'EMPLOYEE' })),
+    ).toBe('forbidden');
+  });
+
+  it('DEMO-30 dashboard numbers, the per-employee table with filters, and CSV export', async () => {
+    const { api, store } = harness();
+    await login(api, 'rohan');
+    const dash = await api.getDashboard();
+    expect(dash).toEqual({
+      openChats: store.data.conversations.filter((c) => c.status === 'open').length,
+      unassignedChats: store.data.conversations.filter(
+        (c) => c.status !== 'closed' && c.assigneeId === null,
+      ).length,
+      newLeads: store.data.leads.filter((l) => l.stage === 'new').length,
+      overdueFollowUps: 3,
+      convertedThisMonth: expect.any(Number),
+    });
+    const rows = await api.getReport({ from: null, to: null, employeeId: null });
+    expect(rows.map((r) => r.employee)).toEqual([
+      'Priya Nair',
+      'Karan Verma',
+      'Sneha Iyer',
+      'Vikram Rao',
+      'Ananya Das',
+    ]);
+    const priyaId = rows[0]?.employeeId ?? null;
+    expect(rows[0]?.chatsAssigned).toBe(
+      store.data.conversations.filter((c) => c.assigneeId === priyaId && c.status !== 'closed')
+        .length,
+    );
+    expect(rows[0]?.repliesSent).toBe(
+      store.data.items.filter((i) => i.kind === 'message' && i.message.sender?.id === priyaId)
+        .length,
+    );
+    const only = await api.getReport({ from: null, to: null, employeeId: priyaId });
+    expect(only).toHaveLength(1);
+    // A range before any activity leaves only active employees, all at zero.
+    const empty = await api.getReport({
+      from: '2020-01-01T00:00:00.000Z',
+      to: '2020-01-02T00:00:00.000Z',
+      employeeId: null,
+    });
+    expect(empty.every((r) => r.repliesSent === 0 && r.followUpsDone === 0)).toBe(true);
+    expect(empty.map((r) => r.employee)).not.toContain('Ananya Das');
+
+    const lines = employeeReportCsv(only).split('\r\n');
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(
+      'Employee,Chats assigned,Replies sent,Open leads,New,Contacted,Qualified,Site visit,Negotiation,Converted,Lost,Follow-ups done',
+    );
+    expect(lines[1]?.startsWith('Priya Nair,')).toBe(true);
+    expect(toCsv(['a'], [['x, "y" z']])).toBe('a\r\n"x, ""y"" z"');
+    await login(api, 'vikram');
+    expect(await rejection(api.getReport({ from: null, to: null, employeeId: null }))).toBe(
+      'forbidden',
+    );
+  });
+
+  it('DEMO-31 the audit log is newest first, filterable, and has no way to edit or delete', async () => {
+    const { api } = harness();
+    await login(api, 'aarav');
+    const entries = await api.listAudit();
+    expect(entries.map((e) => e.at)).toEqual([...entries.map((e) => e.at)].sort().reverse());
+    const neha = entries.find((e) => e.actor?.name === 'Neha Kapoor')?.actor?.id ?? null;
+    const byNeha = filterAudit(entries, { actorId: neha, action: null, from: null, to: null });
+    expect(byNeha.length).toBeGreaterThan(0);
+    expect(byNeha.every((e) => e.actor?.name === 'Neha Kapoor')).toBe(true);
+    const logins = filterAudit(entries, {
+      actorId: null,
+      action: 'auth.login',
+      from: null,
+      to: null,
+    });
+    expect(logins.length).toBeGreaterThan(0);
+    expect(logins.every((e) => e.action === 'auth.login')).toBe(true);
+    const system = filterAudit(entries, { actorId: 'system', action: null, from: null, to: null });
+    expect(system.every((e) => e.actor === null)).toBe(true);
+    const recent = filterAudit(entries, {
+      actorId: null,
+      action: null,
+      from: new Date(NOW.getTime() - 3_600_000 * 4).toISOString(),
+      to: null,
+    });
+    expect(recent.length).toBeLessThan(entries.length);
+    expect(Object.keys(api).filter((k) => /audit/i.test(k))).toEqual(['listAudit']);
+  });
+
   it.todo('DEMO-32 Employee home (manual)');
+});
+
+describe('demo criteria built in phase 5', () => {
   it.todo('DEMO-33 manual browser walk-through of the final demo in three roles');
   it.todo('DEMO-34 static demo build runs with deep links (manual)');
 });

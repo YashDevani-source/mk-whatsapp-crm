@@ -15,12 +15,14 @@ import {
   type PropertyCard,
   type ReplyLock,
   type ReportedStatus,
+  type UserView,
   type WaConnectionState,
   type WaReason,
 } from '@crm/shared';
 import { leadForContact, toConversation } from './views.ts';
 import type { BusEnvelope, DemoEventName, DemoEvents } from './bus.ts';
 import { DEMO_COMPANY_NUMBER } from './seed.ts';
+import { CAMPAIGN_STEP_MS, campaignCounts } from './campaigns.ts';
 import { needsSummary } from './rules.ts';
 import type { ConversationRow, DemoData, LeadRow, SimTask } from './store.ts';
 
@@ -521,6 +523,86 @@ export function setLeadOwner(
   }
 }
 
+// ── Campaigns (DEMO-27) ─────────────────────────────────────────────────────────────────
+
+export function scheduleCampaignStep(data: DemoData, ctx: EngineCtx, campaignId: string): void {
+  // One sending chain per campaign, however often it is paused and resumed.
+  data.sim.tasks = data.sim.tasks.filter(
+    (t) => !(t.kind === 'campaign_step' && t.campaignId === campaignId),
+  );
+  schedule(data, ctx, CAMPAIGN_STEP_MS, { kind: 'campaign_step', campaignId });
+}
+
+// One simulated send. The opt-out list is checked again right before each message; while
+// WhatsApp is down the campaign waits instead of failing its recipients.
+function campaignStep(data: DemoData, ctx: EngineCtx, campaignId: string): void {
+  const campaign = data.campaigns.find((c) => c.id === campaignId);
+  if (!campaign || campaign.status !== 'running') return;
+  if (!waConnected(data)) {
+    scheduleCampaignStep(data, ctx, campaignId);
+    return;
+  }
+  const next = campaign.recipients.find((r) => r.status === 'pending');
+  if (next) {
+    if (data.optOuts.some((o) => o.phone === next.phone)) {
+      next.status = 'skipped';
+      next.reason = 'opted_out';
+    } else {
+      next.status = 'sent';
+      next.at = iso(ctx);
+    }
+  }
+  if (campaign.recipients.some((r) => r.status === 'pending')) {
+    scheduleCampaignStep(data, ctx, campaignId);
+    return;
+  }
+  const counts = campaignCounts(campaign.recipients);
+  campaign.status = 'completed';
+  campaign.completedAt = iso(ctx);
+  audit(
+    data,
+    ctx,
+    null,
+    'campaign.completed',
+    campaign.name,
+    `${counts.sent} sent, ${counts.skipped} skipped, ${counts.failed} failed`,
+  );
+}
+
+// ── Users (DEMO-29) ─────────────────────────────────────────────────────────────────────
+
+// History is kept: past messages carry the name they were sent with. Open chats and open leads
+// become unassigned, and the user's reply locks and session end.
+export function deactivateUser(
+  data: DemoData,
+  ctx: EngineCtx,
+  actor: MessageSender,
+  user: UserView,
+): void {
+  user.active = false;
+  for (const row of data.conversations) {
+    if (row.assigneeId === user.id && row.status !== 'closed') {
+      row.assigneeId = null;
+      pushConversation(data, ctx, row);
+    }
+  }
+  for (const lead of data.leads) {
+    if (lead.ownerId === user.id && !isClosed(lead.stage)) {
+      leadHistory(data, ctx, lead, actor, 'owner', user.name, null);
+      lead.ownerId = null;
+    }
+  }
+  data.locks = data.locks.filter((l) => l.holder.id !== user.id);
+  audit(
+    data,
+    ctx,
+    actor,
+    'user.deactivated',
+    user.name,
+    'History kept; open chats and leads unassigned',
+  );
+}
+
 // ── Reply lock (DEMO-20) ────────────────────────────────────────────────────────────────
 
 export function activeLock(data: DemoData, conversationId: string, now: Date): ReplyLock | null {
@@ -604,6 +686,10 @@ export function runTask(data: DemoData, ctx: EngineCtx, task: SimTask): void {
       } else {
         applyStatus(data, ctx, task.messageId, task.status, task.reason);
       }
+      return;
+    }
+    case 'campaign_step': {
+      campaignStep(data, ctx, task.campaignId);
       return;
     }
     case 'agent_reply': {

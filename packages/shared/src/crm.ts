@@ -280,3 +280,30 @@ export const FollowUpInput = z.object({
   autoReply: z.string().trim().min(1).max(4096).nullable(),
 });
 export type FollowUpInput = z.infer<typeof FollowUpInput>;
+
+// Body of "start campaign" (DEMO-26). The rows are the parsed CSV; the demo api checks every row
+// again before saving.
+export const CampaignInput = z.object({
+  name: z.string().trim().min(1).max(100),
+  message: z.string().trim().min(1).max(1000),
+  testOnly: z.boolean(),
+  rows: z
+    .array(
+      z.object({
+        phone: z.string(),
+        name: z.string().nullable(),
+        fields: z.record(z.string(), z.string()),
+      }),
+    )
+    .min(1)
+    .max(1000),
+});
+export type CampaignInput = z.infer<typeof CampaignInput>;
+
+// Body of "add user" (DEMO-29).
+export const NewUserInput = z.object({
+  name: z.string().trim().min(1).max(80),
+  email: z.string().trim().toLowerCase().pipe(z.email()),
+  role: Role,
+});
+export type NewUserInput = z.infer<typeof NewUserInput>;

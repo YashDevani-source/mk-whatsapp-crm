@@ -15,6 +15,7 @@ import {
 import { bannerText } from '../view.ts';
 import { canOpen, landingPath, navFor, pageForPath, PAGES, type PageKey } from './access.ts';
 import { UserProvider, useDemo, useLive, useUser } from './context.tsx';
+import { CampaignsPage } from './campaigns-page.tsx';
 import { DemoControls } from './controls.tsx';
 import { formatPhone } from './format.ts';
 import { FollowUpsPage } from './followups-page.tsx';
@@ -22,9 +23,11 @@ import { InboxPage } from './inbox-page.tsx';
 import { LeadsPage } from './leads-page.tsx';
 import { LoginPage } from './login.tsx';
 import { PropertiesPage } from './properties-page.tsx';
+import { AuditPage, DashboardPage, HomePage, ReportsPage } from './reports-page.tsx';
 import { DEMO_COMPANY } from './seed.ts';
 import { ToastHost } from './toasts.tsx';
-import { Avatar, Empty, NoAccess, PageHeader, RoleBadge, Skeleton, Tag } from './ui.tsx';
+import { Avatar, Empty, NoAccess, RoleBadge, Skeleton, Tag } from './ui.tsx';
+import { UsersPage } from './users-page.tsx';
 import { WhatsAppPage } from './whatsapp-page.tsx';
 
 export function DemoApp() {
@@ -86,32 +89,19 @@ export function DemoApp() {
   );
 }
 
-// Filled in by later phases; each shows what it will hold until then.
 const PAGE_ELEMENTS: Readonly<Record<PageKey, ReactNode>> = {
-  dashboard: <Placeholder page="dashboard" phase={4} />,
-  home: <Placeholder page="home" phase={4} />,
+  dashboard: <DashboardPage />,
+  home: <HomePage />,
   inbox: <InboxPage />,
   leads: <LeadsPage />,
   properties: <PropertiesPage />,
   followUps: <FollowUpsPage />,
-  campaigns: <Placeholder page="campaigns" phase={4} />,
-  users: <Placeholder page="users" phase={4} />,
-  reports: <Placeholder page="reports" phase={4} />,
-  audit: <Placeholder page="audit" phase={4} />,
+  campaigns: <CampaignsPage />,
+  users: <UsersPage />,
+  reports: <ReportsPage />,
+  audit: <AuditPage />,
   whatsapp: <WhatsAppPage />,
 };
-
-function Placeholder({ page, phase }: { page: PageKey; phase: number }) {
-  return (
-    <>
-      <PageHeader title={PAGES[page].label} />
-      <Empty
-        title="This screen is not built yet"
-        hint={`It arrives in phase ${phase} of the demo build (docs/specs/004-demo.md).`}
-      />
-    </>
-  );
-}
 
 function Guard({ page, children }: { page: PageKey; children: ReactNode }) {
   const user = useUser();
@@ -127,6 +117,11 @@ function Shell({ onLogout }: { onLogout: () => void }) {
   const chats = useLive((a) => a.listConversations(), 'conversations');
   const unread = (chats.data ?? []).filter((c) => c.unreadCount > 0).length;
   const flush = pageForPath(location.pathname) === 'inbox';
+  // A user deactivated (or a data reset) in another tab is logged out here too (DEMO-29).
+  const session = useLive((a) => a.me(), 'me');
+  useEffect(() => {
+    if (session.data === null) onLogout();
+  }, [session.data, onLogout]);
 
   async function logout(): Promise<void> {
     await api.logout().catch(() => undefined);

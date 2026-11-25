@@ -86,6 +86,7 @@ export const SimTask = z.discriminatedUnion('kind', [
     status: ReportedStatus,
     reason: MessageFailureReason.nullable(),
   }),
+  z.object({ ...TaskBase, kind: z.literal('campaign_step'), campaignId: z.uuid() }),
   z.object({
     ...TaskBase,
     kind: z.literal('agent_reply'),

@@ -3,10 +3,14 @@
 // checks the role, the Employee scope and the reply lock, and only then answers. Nothing here
 // calls `fetch`.
 import {
+  CampaignInput,
   FollowUpInput,
   LeadNeeds,
+  NewUserInput,
   SendMessageRequest,
   type AuditEntry,
+  type CampaignView,
+  type OptOut,
   type ConversationStatus,
   type FollowUpView,
   type InboxConversation,
@@ -24,8 +28,16 @@ import {
   type WaQr,
 } from '@crm/shared';
 import { demoCan, scopedToSelf, type DemoAction } from './access.ts';
+import { campaignCounts, checkRecipients, normalizePhone } from './campaigns.ts';
 import type { DemoBus } from './bus.ts';
 import * as engine from './engine.ts';
+import {
+  dashboardNumbers,
+  employeeReport,
+  type Dashboard,
+  type EmployeeRow,
+  type ReportFilter,
+} from './reports.ts';
 import {
   budgetValid,
   propertyCard,
@@ -621,6 +633,202 @@ export function createDemoApi(deps: DemoApiDeps) {
     async listAudit(): Promise<AuditEntry[]> {
       await guard('audit.read');
       return [...store.data.audit].sort((a, b) => b.at.localeCompare(a.at));
+    },
+
+    // ── Campaigns and opt-outs (DEMO-26 to DEMO-28) ──
+
+    async listCampaigns(): Promise<CampaignView[]> {
+      await guard('campaigns.manage');
+      return [...store.data.campaigns].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    },
+
+    async getCampaign(id: string): Promise<CampaignView> {
+      await guard('campaigns.manage');
+      const campaign = store.data.campaigns.find((c) => c.id === id);
+      if (!campaign) throw new DemoApiError('not_found');
+      return campaign;
+    },
+
+    // Confirmed in the wizard's last step. Every row is checked again here; sending starts at
+    // the slow simulated pace, never all at once.
+    async createCampaign(input: CampaignInput): Promise<string> {
+      const user = await guard('campaigns.manage');
+      const parsed = CampaignInput.safeParse(input);
+      if (!parsed.success) throw new DemoApiError('invalid_body');
+      return mutate((data, ctx) => {
+        const optedOut = new Set(data.optOuts.map((o) => o.phone));
+        const recipients = checkRecipients(parsed.data.rows, {
+          testOnly: parsed.data.testOnly,
+          optedOut,
+        });
+        const counts = campaignCounts(recipients);
+        if (counts.pending === 0) throw new DemoApiError('invalid_body');
+        const id = ctx.newId();
+        const at = ctx.now.toISOString();
+        data.campaigns.push({
+          v: 1,
+          id,
+          name: parsed.data.name,
+          message: parsed.data.message,
+          status: 'running',
+          testOnly: parsed.data.testOnly,
+          createdBy: sender(user),
+          createdAt: at,
+          startedAt: at,
+          completedAt: null,
+          recipients,
+        });
+        engine.audit(
+          data,
+          ctx,
+          sender(user),
+          'campaign.created',
+          parsed.data.name,
+          `${counts.total} rows, ${counts.pending} to send`,
+        );
+        engine.audit(
+          data,
+          ctx,
+          sender(user),
+          'campaign.started',
+          parsed.data.name,
+          parsed.data.testOnly ? 'Test numbers only' : 'All valid numbers',
+        );
+        engine.scheduleCampaignStep(data, ctx, id);
+        return id;
+      });
+    },
+
+    async pauseCampaign(id: string): Promise<void> {
+      const user = await guard('campaigns.manage');
+      mutate((data, ctx) => {
+        const campaign = data.campaigns.find((c) => c.id === id);
+        if (!campaign) throw new DemoApiError('not_found');
+        if (campaign.status !== 'running') throw new DemoApiError('wrong_state');
+        campaign.status = 'paused';
+        engine.audit(data, ctx, sender(user), 'campaign.paused', campaign.name);
+      });
+    },
+
+    async resumeCampaign(id: string): Promise<void> {
+      const user = await guard('campaigns.manage');
+      mutate((data, ctx) => {
+        const campaign = data.campaigns.find((c) => c.id === id);
+        if (!campaign) throw new DemoApiError('not_found');
+        if (campaign.status !== 'paused') throw new DemoApiError('wrong_state');
+        campaign.status = 'running';
+        engine.audit(data, ctx, sender(user), 'campaign.resumed', campaign.name);
+        engine.scheduleCampaignStep(data, ctx, id);
+      });
+    },
+
+    async listOptOuts(): Promise<OptOut[]> {
+      await guard('campaigns.manage');
+      return [...store.data.optOuts].sort((a, b) => b.at.localeCompare(a.at));
+    },
+
+    async addOptOut(raw: string): Promise<void> {
+      const user = await guard('campaigns.manage');
+      const phone = normalizePhone(raw);
+      if (phone === null) throw new DemoApiError('invalid_body');
+      mutate((data, ctx) => {
+        if (data.optOuts.some((o) => o.phone === phone)) return;
+        data.optOuts.push({
+          phone,
+          reason: 'manual',
+          addedBy: sender(user),
+          at: ctx.now.toISOString(),
+        });
+        engine.audit(data, ctx, sender(user), 'optout.added', phone, 'Added by hand');
+      });
+    },
+
+    async removeOptOut(phone: string): Promise<void> {
+      const user = await guard('campaigns.manage');
+      mutate((data, ctx) => {
+        if (!data.optOuts.some((o) => o.phone === phone)) throw new DemoApiError('not_found');
+        data.optOuts = data.optOuts.filter((o) => o.phone !== phone);
+        engine.audit(data, ctx, sender(user), 'optout.removed', phone);
+      });
+    },
+
+    // ── Users (DEMO-29) ──
+
+    // New users log in with the demo password. Only the Super Admin creates a Super Admin.
+    async createUser(input: NewUserInput): Promise<UserView> {
+      const user = await guard('users.manage');
+      const parsed = NewUserInput.safeParse(input);
+      if (!parsed.success) throw new DemoApiError('invalid_body');
+      if (parsed.data.role === 'SUPER_ADMIN' && user.role !== 'SUPER_ADMIN')
+        throw new DemoApiError('forbidden');
+      return mutate((data, ctx) => {
+        if (data.users.some((u) => u.email === parsed.data.email))
+          throw new DemoApiError('invalid_body');
+        const created: UserView = {
+          id: ctx.newId(),
+          ...parsed.data,
+          active: true,
+          createdAt: ctx.now.toISOString(),
+        };
+        data.users.push(created);
+        engine.audit(
+          data,
+          ctx,
+          sender(user),
+          'user.created',
+          created.name,
+          `Role: ${created.role}`,
+        );
+        return created;
+      });
+    },
+
+    async changeRole(userId: string, role: Role): Promise<void> {
+      const user = await guard('users.manage');
+      mutate((data, ctx) => {
+        const target = data.users.find((u) => u.id === userId);
+        if (!target || !target.active) throw new DemoApiError('not_found');
+        // A Manager cannot touch a Super Admin or make one.
+        if (
+          user.role !== 'SUPER_ADMIN' &&
+          (target.role === 'SUPER_ADMIN' || role === 'SUPER_ADMIN')
+        ) {
+          throw new DemoApiError('forbidden');
+        }
+        if (target.id === user.id) throw new DemoApiError('wrong_state');
+        if (target.role === role) return;
+        const before = target.role;
+        target.role = role;
+        engine.audit(data, ctx, sender(user), 'user.role', target.name, `${before} → ${role}`);
+      });
+    },
+
+    async deactivateUser(userId: string): Promise<void> {
+      const user = await guard('users.manage');
+      mutate((data, ctx) => {
+        const target = data.users.find((u) => u.id === userId);
+        if (!target || !target.active) throw new DemoApiError('not_found');
+        if (user.role !== 'SUPER_ADMIN' && target.role === 'SUPER_ADMIN')
+          throw new DemoApiError('forbidden');
+        // Not yourself, and never the last active Super Admin.
+        const admins = data.users.filter((u) => u.active && u.role === 'SUPER_ADMIN');
+        if (target.id === user.id || (target.role === 'SUPER_ADMIN' && admins.length <= 1)) {
+          throw new DemoApiError('wrong_state');
+        }
+        engine.deactivateUser(data, ctx, sender(user), target);
+      });
+    },
+
+    // ── Dashboard and reports (DEMO-30) ──
+
+    async getDashboard(): Promise<Dashboard> {
+      await guard('reports.read');
+      return dashboardNumbers(store.data, now());
+    },
+
+    async getReport(filter: ReportFilter): Promise<EmployeeRow[]> {
+      await guard('reports.read');
+      return employeeReport(store.data, filter);
     },
 
     // ── Demo controls: the reviewer's tools, open to every logged-in user, labelled Demo ──

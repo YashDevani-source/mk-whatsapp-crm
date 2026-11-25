@@ -1503,7 +1503,219 @@ td .chip {
   border: 0;
 }
 
+/* Phase 4: wizard, progress, numbers, home */
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.step-n {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
+.steps li.active {
+  color: var(--text);
+}
+
+.steps li.active .step-n {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: white;
+}
+
+.steps li.done .step-n {
+  border-color: var(--ok-text);
+  background: var(--ok);
+  color: var(--ok-text);
+}
+
+.wizard-card {
+  display: grid;
+  gap: 0.9rem;
+  max-width: 62rem;
+}
+
+.wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.toggle.safety {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.preview-bubble {
+  max-width: 34rem;
+  margin-top: 0.3rem;
+  white-space: pre-wrap;
+}
+
+.stat-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.stat {
+  display: grid;
+  min-width: 7rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.stat-n {
+  color: var(--text);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.progress {
+  display: flex;
+  height: 0.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--neutral);
+}
+
+.progress-sent {
+  background: var(--ok-text);
+  transition: width 0.4s;
+}
+
+.progress-skipped {
+  background: #d9a441;
+  transition: width 0.4s;
+}
+
+.recipients {
+  max-height: 26rem;
+  overflow-y: auto;
+}
+
+.number-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.number-card {
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--info-text);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+
+.number-card .number {
+  color: var(--text);
+  font-size: 1.9rem;
+  font-weight: 700;
+}
+
+.number-ok {
+  border-left-color: var(--ok-text);
+}
+
+.number-warn {
+  border-left-color: var(--warn-text);
+}
+
+.number-error {
+  border-left-color: var(--error-text);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.three-col {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.two-col .card,
+.three-col .card {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.list-row:last-child {
+  border-bottom: 0;
+}
+
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.inactive-row td {
+  color: var(--muted);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+table.numbers td:not(:first-child),
+table.numbers th:not(:first-child) {
+  text-align: right;
+}
+
 @media (max-width: 1100px) {
+  .two-col,
+  .three-col {
+    grid-template-columns: 1fr;
+  }
+
   .detail-grid {
     grid-template-columns: 1fr;
   }
