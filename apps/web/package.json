@@ -1,0 +1,14 @@
+{
+  "name": "@crm/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --reporter=verbose",
+    "dev": "node src/dev.ts"
+  },
+  "dependencies": {
+    "@crm/shared": "workspace:*"
+  }
+}
