@@ -7,19 +7,20 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25, FND closed)
-- **Done:** Spec 0 (`BOOT`) and Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) are built. FND was built in 5 phases (history in `docs/history/2026-11-25-fnd-phase-*.md`):
-  - Config and health (FND-01, 02, 03, 19). The api and worker validate env at boot (`parseEnv` in `packages/shared/src/env.ts`) and exit naming each bad variable. The api serves `GET /health` (Postgres `SELECT 1` and Redis `PING`, 2 s each). `.env.example` exists.
-  - Database (FND-04, 05, 06). Migration `init` creates the six tables and unique indexes. `pnpm migrate` checks `MigrateEnv`, then runs `prisma migrate deploy`. `pnpm seed` upserts one argon2id user per role plus 2 test contacts, and refuses production. `crm_dev` is migrated and seeded.
-  - Auth and permissions over HTTP (FND-07 to 14, 18). `POST /auth/login` (public), `POST /auth/logout` and `GET /auth/me` (`auth.session`). Signed httpOnly `crm_sid` cookie, Redis sessions `sess:<id>` + `user-sess:<userId>`, login rate limit `login-fail:<email>`. `PERMISSION_MAP` and `can()` in `packages/shared/src/auth.ts`. Every route's first handler is `access(level)` (`apps/api/src/access.ts`).
-  - Sockets (FND-15, 16, 17, 20). `createSockets` in `apps/api/src/sockets.ts`; `main.ts` attaches `io` to the api's HTTP server. The handshake and the HTTP guard share `authenticate` / `checkSession` (`access.ts`). Rooms come from the role on connect (`roomsFor`; `userRoom` in shared). Clients cannot join rooms. Every socket event re-checks the session. Logout disconnects that session's sockets (`control.endSession`). An inactive user has all sessions ended and all sockets disconnected (`control.endUser`). FND Decisions 36 to 42.
-- **Tests:** `pnpm test` gives 124 passed and 2 `it.todo` (BOOT-09 and BOOT-16, manual).
-  - Passed: 76 root tests (75 BOOT + FND-19) and 48 package tests.
-  - typecheck, lint, format:check and traceability pass. No FND `it.todo` is left.
-  - Api tests use `crm_test` and Redis db 1, create their own users (`apps/api/src/test-support.ts`), and a vitest `globalSetup` migrates `crm_test`. Socket tests serve the app on a free port with `listen(ctx)`.
-- **Not built:** any product module, CORS, the socket origin check, and the UI. No socket room events exist yet.
-- **WA spec drafted** (`docs/specs/002-whatsapp.md`, `Status: draft`, WA-01 to WA-27, not committed). It covers the connection only. Decisions 1 to 4 were agreed with the user: MSG adds send and receive; the dev provider is `fake`, labelled Simulated; the web app is Vite + React with no router; WA writes its own audit rows. Decisions 5 to 11 and the "Open points for review" still need the user's review.
-- **Next:** the user reviews and approves the WA spec, then WA phase 1 (pinned installs, Baileys auth-state type check, contracts, `wa-session` migration, `it.todo` per criterion). Specs are written and approved before any code.
+## Current state (updated 2026-11-25, WA built except the phone check)
+- **Done:** Spec 0 (`BOOT`), Spec 1 (`FND`, 20 criteria) and Spec 2 (`WA`, `docs/specs/002-whatsapp.md`, 27 criteria) are built. History: `docs/history/2026-11-25-fnd-phase-*.md`, `…-wa-spec-draft.md`, `…-wa-phase-*.md`.
+  - FND: env validation (`parseEnv`), `GET /health`, migration `init` and seed, login with signed `crm_sid` cookie and Redis sessions, `PERMISSION_MAP`/`can()`, the `access(level)` route guard, authenticated sockets with server-assigned rooms (`roomsFor`), logout/deactivation disconnects. FND Decisions 1 to 42.
+  - WA worker (`apps/worker/src/`): `connection.ts` (`startWaWorker`: lock, states, backoff, commands, audit), `lock.ts` (`wa:lock`, Lua owner checks), `session-store.ts` + `crypto.ts` (AES-256-GCM, AAD per row), `providers/fake/fake.ts`, `providers/baileys/index.ts` (pinned `baileys` 7.0.0-rc14, connection only), `providers/index.ts` (`createProvider`). Migration `wa-session` (provider column, nullable number, `whatsapp_session_keys`).
+  - WA api: `events.ts` (relay `crm:events` → `wa.state` to `global`, `wa.qr` to `admin`), `wa.ts` (`POST /wa/qr`, `POST /wa/logout`, `wa.manage`), `origin.ts` (socket `allowRequest` + non-GET origin guard; no CORS), state and QR sent on socket connect.
+  - WA web (`apps/web`): Vite + React 19, no router. Login page, Super Admin connection page with QR, home placeholder, banner with "Simulated" tag. Vite proxy for `/auth`, `/wa`, `/health`, `/socket.io` on port 5173.
+  - Contracts: `packages/shared/src/wa.ts` (`WaState`, `WaQr`, `CrmEvent`, `WaCommand`, `WA_REDIS`, `EVENTS_CHANNEL`, `WhatsAppProvider`, `ProviderAuthStore`). `WorkerEnv` adds `WHATSAPP_PROVIDER` (default `fake`), `WA_LOCK_TTL_MS`, `WA_RECONNECT_BASE_MS`, `WA_RECONNECT_MAX_MS`.
+- **Not done:** WA-27, the real test phone end to end with `WHATSAPP_PROVIDER=baileys` (QR scan, restart without QR, network drop, unlink from phone, new QR). The Baileys adapter has never talked to WhatsApp (WA Decision 40).
+- **Tests:** `pnpm test` gives 173 passed and 5 `it.todo` (BOOT-09, BOOT-16, and the manual WA-23, WA-24, WA-27).
+  - typecheck, lint, format:check and traceability pass.
+  - Package tests run one package at a time (`--workspace-concurrency=1`): the packages share `crm_test`. Api tests use Redis db 1, worker tests Redis db 2, dev uses db 0.
+  - Worker tests: in-process managers with short timings, plus spawned `main.ts` for the kill/SIGTERM lock tests (WA-03, WA-05).
+- **Next:** the user runs WA-27 with the test phone (README "WhatsApp"), then the MSG spec (send, receive, status; extends the provider interface and both adapters), after the user's go-ahead.
+- `crm_dev` holds a `FAKE` session row and `wa.*` audit rows from the browser check.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
 - Session notes: `docs/history/`.
 
@@ -28,20 +29,20 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - Install: `pnpm install` (also runs `prisma generate` for `@crm/db` via its `postinstall`; regenerate by hand with `pnpm --filter @crm/db generate`)
 - Infra: `docker compose up -d --wait` (Postgres 16 on host port 5433, Redis 7 on 6379; dev user/password `crm`/`crm`; databases `crm_dev` and `crm_test`)
 - Env: `cp .env.example .env`, then fill in `SESSION_SECRET` and `SESSION_ENCRYPTION_KEY` (`openssl rand -hex 32` each). The api and worker `dev` scripts load the root `.env` with `node --env-file-if-exists`. Tests never read `.env`.
-- Dev (web + api + worker): `pnpm dev` (api on port 4000; `curl localhost:4000/health`; log in with `curl -c jar … /auth/login`, see README)
+- Dev (web + api + worker): `pnpm dev` (web on http://localhost:5173 through a Vite proxy, api on port 4000; `curl localhost:4000/health`). Real WhatsApp: set `WHATSAPP_PROVIDER=baileys` in `.env`.
 - Test: `pnpm test` (root tests in `tests/` + every package's tests)
 - Typecheck: `pnpm typecheck`. Lint: `pnpm lint` (ESLint + dependency-direction check)
 - Migrate / seed: `pnpm migrate`, `pnpm seed` (both load the root `.env`, so they target `crm_dev`). Seeded logins are `superadmin@`, `manager@` and `employee@crm.test`, with password `SEED_PASSWORD` (default `crm-dev-password`).
-- New migration (later specs): in `packages/db`, run `DATABASE_URL=<crm_dev url> pnpm exec prisma migrate dev --create-only --name <area>-<change>`, review the SQL, then `pnpm migrate` (FND Decision 24).
+- New migration (later specs): in `packages/db`, run `DATABASE_URL=<crm_dev url> pnpm exec prisma migrate dev --create-only --name <area>-<change>`, review the SQL, then `pnpm migrate` (FND Decision 24). Without a terminal, `migrate dev` refuses when it has a warning; then generate the SQL with `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` into a new `<timestamp>_<name>/migration.sql` (WA Decision 16).
 - Traceability: `pnpm traceability`. Format: `pnpm format` / `pnpm format:check`
 
 ## Layout
 - `apps/web`, `apps/api`, `apps/worker`, `packages/shared`, `packages/db`: workspace packages named `@crm/web`, `@crm/api`, `@crm/worker`, `@crm/shared`, `@crm/db`.
 - `scripts/`: `contracts.ts` (shared constants for BOOT), `traceability.ts`, `check-dependency-graph.ts`.
-- `tests/bootstrap/`: tests for the BOOT criteria. `tests/foundation/`: repo-level FND tests (FND-19).
+- `tests/bootstrap/`: tests for the BOOT criteria. `tests/foundation/`: repo-level FND tests (FND-19). `tests/whatsapp/`: WA-26 (Baileys pin and boundary).
 - FND tests live next to the code they test: `apps/api/src/*.test.ts`, `apps/worker/src/boot.test.ts`, `packages/db/src/*.test.ts`, `packages/shared/src/{env,permissions}.test.ts`.
-- Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps, { extraRouters })`, used by tests through supertest; `extraRouters` is test-only), `config.ts` (`AuthConfig`), `access.ts` (route guard, `authenticate`, `checkSession`), `session.ts` (cookie and Redis sessions), `sockets.ts` (Socket.io server, rooms, `SocketControl`), `auth.ts` (`/auth` router), `health.ts` and `redis.ts`. `apps/api/src/test-support.ts` and `test-global-setup.ts` are test-only. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. `apps/web/src/dev.ts` is still the BOOT placeholder.
-- `packages/db/prisma/` holds `schema.prisma` and `migrations/` (`20261125145958_init`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. `packages/db/src/{migrate,seed}.ts` are the script entries. `src/test-support.ts` holds the crm_test helpers for the db tests (not exported). The db tests run files serially. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
+- Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps, { extraRouters })`, used by tests through supertest; `extraRouters` is test-only), `config.ts` (`AuthConfig`), `access.ts` (route guard, `authenticate`, `checkSession`), `session.ts` (cookie and Redis sessions), `sockets.ts` (Socket.io server, rooms, `SocketControl`), `auth.ts` (`/auth` router), `health.ts` and `redis.ts`. `apps/api/src/test-support.ts` and `test-global-setup.ts` are test-only. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. The api also has `wa.ts`, `events.ts` and `origin.ts` (WA). WA tests: `apps/worker/src/{wa,crypto}.test.ts` (with `test-support.ts`), `apps/api/src/wa.test.ts`, `apps/web/src/view.test.ts`.
+- `packages/db/prisma/` holds `schema.prisma` and `migrations/` (`20261125145958_init`, `20261125162103_wa-session`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. `packages/db/src/{migrate,seed}.ts` are the script entries. `src/test-support.ts` holds the crm_test helpers for the db tests (not exported). The db tests run files serially. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
 - `docs/`: `plan/` (source documents), `specs/`, `data-flow/`, `history/`.
 
 ## Conventions in force
@@ -98,10 +99,10 @@ If a spec is wrong: update the spec, then the test, then the code. Write decisio
 ## Open items
 - Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
 - Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
-- Specs after WA (MSG, INB, …) are unwritten. The minimal login page is WA-23 (FND Decision 4).
-- CORS for HTTP and a socket origin check (`ALLOWED_ORIGINS`) are not applied yet (FND Decision 41). The WA draft proposes no CORS (a Vite proxy, same origin) plus origin checks WA-21 and WA-22.
+- Specs after WA (MSG, INB, …) are unwritten.
+- WA-27 (real phone) is open. `baileys` is a release candidate (7.0.0-rc14); if it misbehaves, the fallback is `legacy` 6.7.24 (WA Decision 6).
 - The USR deactivate route must call `sockets.endUser` so sockets drop at once (FND Decision 40).
-- FND-03's 2 s health timeout failed once under heavy parallel test load. Watch it in CI.
+- FND-03's 2 s health timeout failed under parallel package tests; package tests now run one at a time (WA Decision 27). Watch it in CI.
 - CI (`.github/workflows/ci.yml`) has not run; needs a GitHub repo.
 - pnpm skips the install scripts of `prisma` and `@prisma/engines`; the Prisma CLI fetches its schema engine on first use. Check this on the first CI run.
 - Suggested but not specced: CI check for the exact Baileys version pin, struck-through and duplicate IDs in traceability, `format:check` in CI.

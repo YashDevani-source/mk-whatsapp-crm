@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) and Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms) are built. There are still no product features and no UI; login works over HTTP only (`curl`), and a socket client must send the `crm_sid` cookie. `pnpm dev` starts the api (`/health`, `/auth/*` and Socket.io on the same port) and placeholder web and worker processes. Next is the WA spec (unwritten).
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms) and Spec 2 (WA: the WhatsApp connection) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Messages are not sent or received yet (MSG, next). WA-27, the check with the real test phone, is still to be done by hand.
 
 ## What we did in session 1
 
@@ -31,9 +31,11 @@ docker compose up -d --wait     # Postgres 16 and Redis 7, wait until healthy
 cp .env.example .env            # then fill in the two secrets (see below)
 pnpm migrate                    # create the tables in crm_dev
 pnpm seed                       # one user per role and two test contacts
-pnpm dev                        # starts web, api and worker
+pnpm dev                        # starts web (http://localhost:5173), api and worker
 curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 ```
+
+Open <http://localhost:5173> and log in with a seeded user (below). The Super Admin sees the WhatsApp connection page; everyone sees the connection banner.
 
 `.env` is gitignored. Two secrets are left blank on purpose. Generate each with `openssl rand -hex 32`:
 
@@ -42,7 +44,7 @@ curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 
 Until both are set, the api and worker refuse to start and name the missing variables. Every variable is explained in `.env.example`. A variable set in your shell overrides the file.
 
-Seeded users (dev only). Every user has the password `SEED_PASSWORD`, which defaults to `crm-dev-password`. Seed refuses to run when `NODE_ENV=production`. Log in with `curl` (there is no login page until the WA spec):
+Seeded users (dev only). Every user has the password `SEED_PASSWORD`, which defaults to `crm-dev-password`. Seed refuses to run when `NODE_ENV=production`. Log in on the login page, or with `curl`:
 
 ```bash
 curl -c jar -H 'Content-Type: application/json' \
@@ -52,6 +54,13 @@ curl -b jar -X POST localhost:4000/auth/logout # 204; the cookie now gets 401
 ```
 
 Socket.io runs on the same port. A connection without a valid `crm_sid` cookie is refused (`unauthenticated`). The server puts each socket in its rooms (`user:<id>` and `global` for everyone, `inbox:all` for Managers and the Super Admin, `admin` for the Super Admin); clients cannot join rooms. Logging out disconnects that session's sockets.
+
+### WhatsApp
+
+- **Fake (default, `WHATSAPP_PROVIDER=fake`):** a simulation. The connection page shows a simulated QR and pairs itself after 5 seconds; the banner shows a "Simulated" tag.
+- **Real test number (`WHATSAPP_PROVIDER=baileys` in `.env`, then restart `pnpm dev`):** the Super Admin opens the connection page, and on the test phone goes to WhatsApp → Linked devices → Link a device and scans the QR. The session is stored encrypted in Postgres (`SESSION_ENCRYPTION_KEY`), so a restart reconnects without a new QR. "Log out WhatsApp" unlinks the device; "Get new QR" pairs again after a logout or an expired QR. Use a test number only.
+- Only one worker may hold the WhatsApp session. A second worker prints `standby, another worker holds the WhatsApp lock` and takes over within about 35 s if the first one dies (at once if it is stopped with Ctrl-C).
+- The browser talks only to the Vite dev server, which forwards `/auth`, `/wa` and `/socket.io` to the api, so there is no CORS. The api refuses sockets and non-GET requests from origins not in `ALLOWED_ORIGINS`.
 
 Five failed logins for one email within 15 minutes block that email with 429 (`LOGIN_MAX_ATTEMPTS`, `LOGIN_WINDOW_SECONDS`).
 
@@ -70,28 +79,28 @@ Stop the services with `docker compose down` (add `-v` to delete the database vo
 
 ## Commands
 
-| Command             | What it does                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------- |
-| `pnpm install`      | Install dependencies                                                                    |
-| `pnpm dev`          | Start web, api and worker together (reads the root `.env`)                              |
-| `pnpm test`         | Repo-level tests (`tests/bootstrap`) plus every package's tests. Needs Docker running.  |
-| `pnpm typecheck`    | `tsc --noEmit` for the root and all five packages                                       |
-| `pnpm lint`         | ESLint, plus the dependency-direction check                                             |
-| `pnpm migrate`      | Apply pending Prisma migrations (`prisma migrate deploy`); a second run applies nothing |
-| `pnpm seed`         | Create the seeded users and test contacts; safe to rerun; refuses production            |
-| `pnpm traceability` | Lists spec criterion IDs that no test title starts with                                 |
-| `pnpm format`       | Format with Prettier (`format:check` only checks)                                       |
+| Command             | What it does                                                                                         |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `pnpm install`      | Install dependencies                                                                                 |
+| `pnpm dev`          | Start web, api and worker together (reads the root `.env`)                                           |
+| `pnpm test`         | Repo-level tests (`tests/`) plus every package's tests, one package at a time. Needs Docker running. |
+| `pnpm typecheck`    | `tsc --noEmit` for the root and all five packages                                                    |
+| `pnpm lint`         | ESLint, plus the dependency-direction check                                                          |
+| `pnpm migrate`      | Apply pending Prisma migrations (`prisma migrate deploy`); a second run applies nothing              |
+| `pnpm seed`         | Create the seeded users and test contacts; safe to rerun; refuses production                         |
+| `pnpm traceability` | Lists spec criterion IDs that no test title starts with                                              |
+| `pnpm format`       | Format with Prettier (`format:check` only checks)                                                    |
 
 ## Layout
 
 ```
-apps/web         React app (placeholder)
-apps/api         Express API: /health, /auth, and Socket.io with server-assigned rooms
-apps/worker      WhatsApp worker; the only place Baileys may be imported (placeholder)
+apps/web         React app (Vite): login page, WhatsApp connection page, connection banner
+apps/api         Express API: /health, /auth, /wa, and Socket.io with server-assigned rooms
+apps/worker      WhatsApp worker: single-session lock, encrypted session, Fake and Baileys adapters
 packages/shared  Zod schemas, types, events, provider interface, permissions
 packages/db      Prisma schema, migrations, client, migrate and seed scripts
 scripts/         Traceability and dependency-graph scripts, shared contracts
-tests/bootstrap  Tests for the Spec 0 criteria
+tests/           Repo-level tests (bootstrap, foundation, whatsapp)
 docs/            Plans, specs, data flow, session history
 ```
 
@@ -103,17 +112,18 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 
 ## Docs
 
-| Where                                       | What                                                                         |
-| ------------------------------------------- | ---------------------------------------------------------------------------- |
-| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                   |
-| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md` built, `001-foundation.md` built) |
-| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (planned)                           |
-| [docs/history/](docs/history/README.md)     | Session notes                                                                |
-| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                        |
+| Where                                       | What                                                                                         |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| [docs/plan/](docs/plan/)                    | Project summary, development plan, architecture, data flow                                   |
+| [docs/specs/](docs/specs/)                  | Specs and the template (`000-bootstrap.md`, `001-foundation.md` and `002-whatsapp.md` built) |
+| [docs/data-flow/](docs/data-flow/README.md) | Which route, event and job delivers what (partly built)                                      |
+| [docs/history/](docs/history/README.md)     | Session notes                                                                                |
+| [.claude/CLAUDE.md](.claude/CLAUDE.md)      | Rules and context loaded in every Claude Code session                                        |
 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- Specs after FND (WA, MSG, INB, …) are not written yet. No socket room events exist yet.
-- No CORS and no socket origin check yet: the api is only called with `curl` and test clients until the login page (WA spec). See FND Decision 41.
+- Specs after WA (MSG, INB, …) are not written yet. No message is sent or received yet.
+- WA-27 (the real test phone end to end) has not been run; it needs the test phone.
+- The Baileys pin is a release candidate (`7.0.0-rc14`, npm's `latest`); see WA Decision 6.
 - See [docs/history/](docs/history/README.md) for the full open-items list.

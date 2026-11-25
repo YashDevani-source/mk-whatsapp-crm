@@ -1,6 +1,6 @@
 # Data flow: what each route, event and job delivers
 
-Status: **planned, mostly not built.** The routes in code are `GET /health` (FND phase 2) and `/auth/login`, `/auth/logout`, `/auth/me` (FND phase 4). Every route goes through the `access(level)` guard (`apps/api/src/access.ts`): 401 `unauthenticated` without a valid session, 403 `forbidden` without the permission. The Socket.io server (`apps/api/src/sockets.ts`, FND phase 5) authenticates the handshake with the same cookie and puts each socket in its rooms; no room event and no queue exists yet. Spec 0 built the skeleton, and FND (built) has fixed the paths of its own routes, marked below. This file turns `docs/plan/data-flow-plan.md` (the source) into a lookup of who calls what and what comes back. It is filled in with real paths when each module's spec is written.
+Status: **planned, partly built.** The routes in code are `GET /health` (FND phase 2), `/auth/login`, `/auth/logout`, `/auth/me` (FND phase 4), and `POST /wa/qr`, `POST /wa/logout` (WA phase 3). The live events `wa.state` and `wa.qr` are built (WA phases 2 and 3). Every route goes through the `access(level)` guard (`apps/api/src/access.ts`): 401 `unauthenticated` without a valid session, 403 `forbidden` without the permission. The Socket.io server (`apps/api/src/sockets.ts`, FND phase 5) authenticates the handshake with the same cookie and puts each socket in its rooms; no room event and no queue exists yet. Spec 0 built the skeleton, and FND (built) has fixed the paths of its own routes, marked below. This file turns `docs/plan/data-flow-plan.md` (the source) into a lookup of who calls what and what comes back. It is filled in with real paths when each module's spec is written.
 
 Rule for every flow: validate, write to Postgres, then enqueue or publish, then push to the right browsers. Postgres is always written first.
 
@@ -23,7 +23,7 @@ Paths are not decided yet, except FND's. Each row says what the route does and w
 | Confirm campaign              | Super Admin, Manager                         | CampaignRecipient rows (unique campaign + contact), jobs queued at a controlled rate     | CMP  |
 | Pause / resume campaign       | Super Admin, Manager                         | Campaign status changed; the worker checks it before each send; audit entry              | CMP  |
 | Reports and CSV export        | Employees see own figures; Managers and Super Admin see all | Aggregate tables scoped by role; export streams rows                      | RPT  |
-| Connection page (QR, status)  | Super Admin                                  | QR and state arrive over the `admin` and `global` rooms, not through a route             | WA   |
+| WhatsApp connection (**built**, WA: `apps/api/src/wa.ts`): `POST /wa/qr`, `POST /wa/logout` | `wa.manage` (Super Admin) | 202 and a `WaCommand` on Redis `wa:commands` for the worker, after an audit row (`wa.qr_requested` / `wa.logout_requested`, actor and IP). 409 `invalid_state` unless the worker's `wa:state` is `reconnect_required` (qr) or `connected` (logout); a missing state key is `worker_offline`. The QR and the state themselves arrive over the `admin` and `global` rooms, not through a route. Any non-GET request from an origin outside `ALLOWED_ORIGINS` gets 403 `forbidden_origin` first (WA-22). | WA |
 
 ## Live events (Redis pub/sub, then Socket.io)
 
@@ -36,8 +36,8 @@ Paths are not decided yet, except FND's. Each row says what the route does and w
 | `lead.created` / `lead.updated` | worker, API             | `inbox:all`, `user:<owner>`               |
 | `followup.due`            | worker                        | `user:<owner>`                            |
 | `campaign.progress`       | worker                        | `admin`, Managers                         |
-| `wa.state`                | worker                        | `global`                                  |
-| `wa.qr`                   | worker                        | `admin`                                   |
+| `wa.state` (**built**, `WaState`) | worker (`apps/worker/src/connection.ts`) | `global`; also sent to each socket on connect, from Redis `wa:state` (or `worker_offline`) |
+| `wa.qr` (**built**, `WaQr`)       | worker                        | `admin` only; also sent on connect to a Super Admin socket while the state is `qr_required`, from Redis `wa:qr` |
 
 Rooms are joined only by the server, and only after a valid session (**built**, FND phase 5: `apps/api/src/sockets.ts`). The handshake reads the `crm_sid` cookie; without a valid session the connection is refused with `unauthenticated`. Rooms are assigned on connect from the role (`roomsFor`); a client join request is ignored. Every incoming socket event re-checks the session and the user first: a logged-out, expired or deactivated session is disconnected. Logout disconnects that session's sockets; deactivation ends all the user's sessions and disconnects all their sockets on their next request or socket event.
 
@@ -47,6 +47,20 @@ Rooms are joined only by the server, and only after a valid session (**built**, 
 | `user:<id>`  | That user                | Events for chats and leads assigned to them |
 | `admin`      | Super Admin              | QR codes, connection alerts                |
 | `global`     | Everyone logged in       | WhatsApp connection state banner           |
+
+Events travel on the Redis channel `crm:events` as a `CrmEvent` envelope. The api's relay (`apps/api/src/events.ts`) validates each one and chooses the rooms from the event type; an invalid event is dropped and logged by error name (WA-17). The socket handshake is refused for an `Origin` outside `ALLOWED_ORIGINS` (WA-21).
+
+## WhatsApp connection (built, WA)
+
+| Redis key or channel | Written by | Holds |
+| --- | --- | --- |
+| `wa:lock` | worker | The lock holder's worker id, TTL `WA_LOCK_TTL_MS` (30 s), refreshed every TTL/3 with an owner check. A standby retries every TTL/6. |
+| `wa:state` | worker | The latest `WaState`, same TTL, refreshed with the lock. Gone means the worker is offline. |
+| `wa:qr` | worker | The latest `WaQr`, 60 s TTL, deleted when the state leaves `qr_required`. |
+| `crm:events` (channel) | worker | `wa.state`, `wa.qr` (MSG adds its events). |
+| `wa:commands` (channel) | api | `new_qr`, `logout`. Only the lock holder acts, after checking its own state again. |
+
+States: `connecting` → `qr_required` → `connected`; a network drop gives `disconnected` and a backoff reconnect (1 s doubling to 60 s, ±20 %); a phone logout, an expired QR, an admin logout or an unreadable session stop in `reconnect_required` until "Get new QR". The session (credentials and keys) is stored AES-256-GCM encrypted in `whatsapp_sessions` and `whatsapp_session_keys`, one session per provider.
 
 ## Queues (BullMQ)
 
@@ -72,7 +86,7 @@ Rooms are joined only by the server, and only after a valid session (**built**, 
 | Writer | Writes                                                                                                |
 | ------ | ----------------------------------------------------------------------------------------------------- |
 | API    | Users, assignments, lead changes, notes, outbound messages (`queued`), uploads, follow-ups, campaign setup, audit rows for these |
-| Worker | Contacts, conversations and inbound messages, unread count, auto-created leads, message status, reminders sent, campaign recipient status, WhatsApp session, audit rows for connect and disconnect |
+| Worker | Contacts, conversations and inbound messages, unread count, auto-created leads, message status, reminders sent, campaign recipient status, WhatsApp session (**built**), audit rows `wa.connected`, `wa.disconnected`, `wa.logged_out` (**built**) |
 
 The worker and the API never call each other directly. They talk only through Redis and the database.
 

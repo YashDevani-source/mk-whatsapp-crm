@@ -1,5 +1,7 @@
 Status: approved
 
+Built: 2026-11-25, in 5 phases. WA-01 to WA-26 have passing tests; the manual check passed with the Fake provider (Decision 38). **WA-27 (the real test phone) is not yet done**: it needs the user's test phone.
+
 Drafted and approved 2026-11-25. The user's "do all parts" approved the draft with its recommendations (Decisions 5 to 11, and the open points as recommended: `baileys` 7.0.0-rc14, lock TTL 30 s, no "Get new QR" in `disconnected`) and the build of all five phases.
 
 # Spec 2: WhatsApp connection (WA)
@@ -187,6 +189,11 @@ Made during WA phase 4 (2026-11-25), within the approved build:
 36. Web layout (`apps/web/`): `index.html`, `vite.config.ts` (port 5173, `strictPort`, proxy for `/auth`, `/wa`, `/health` and `/socket.io` with `ws`), `src/main.tsx`, `src/App.tsx` (session check, then login or the role's view), `src/pages.tsx` (`LoginPage`, `ConnectionPage`, `HomePage`, `Banner`), `src/useWhatsApp.ts` (socket hook; validates `wa.state` and `wa.qr` with the shared schemas and drops the QR when the state leaves `qr_required`), `src/api.ts`, `src/view.ts` (pure rules), `src/styles.css`. The tsconfig adds `jsx: react-jsx` and the `vite/client` types (TypeScript 6 checks side-effect CSS imports). `src/dev.ts` is deleted; `pnpm dev` runs `vite`.
 37. Pure parts of WA-23 and WA-24 are unit tested too (`viewFor`, `loginErrorText`, `actionErrorText`); the pages themselves stay manual (`it.todo … (manual)`).
 38. Browser check on 2026-11-25 with `pnpm dev` (Fake, `crm_dev`), driven through Playwright: a wrong password showed the generic message; the Employee saw the home page and the banner "Simulated · WhatsApp is connected."; logout returned to the login page; the Super Admin landed on the connection page; "Log out WhatsApp" gave `reconnect_required` (logged out by the Super Admin) with "Get new QR"; that showed the simulated QR, which paired itself after 5 s and returned to `connected`. With `curl`, the Employee got 403 `forbidden` on `POST /wa/qr`, and 403 `forbidden_origin` with a foreign `Origin`. A second dev worker printed the standby line. This covers manual check steps 1 to 4 and 6; step 5 (the phone) is WA-27.
+
+Made during WA phase 5 (2026-11-25), within the approved build:
+
+39. WA-26 is a repo-level test (`tests/whatsapp/baileys.test.ts`): the worker declares `baileys` exactly `7.0.0-rc14` and no other package declares any Baileys name; the lockfile resolves that version; no source file outside the adapter folder imports a Baileys package (a second check besides BOOT-06's lint rule); the adapter's class `implements WhatsAppProvider` and loads. This also covers BOOT's suggested "exact Baileys version pin" check for Baileys.
+40. The Baileys adapter has not run against WhatsApp yet. It typechecks against Baileys' own types and loads, and the close-code mapping follows `DisconnectReason`. WA-27 is its first real test; if it shows a wrong mapping, the fix is in the adapter only.
 
 ## Build phases
 
