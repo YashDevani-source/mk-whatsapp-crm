@@ -1,4 +1,4 @@
-// FND contracts: env schemas (FND-01, FND-02, FND-19). Loading and error reporting arrive in FND phase 2.
+// FND contracts: env schemas (FND-01, FND-02, FND-19) and the pure parser each app calls at boot.
 import { z } from 'zod';
 
 const NodeEnv = z.enum(['development', 'test', 'production']).default('development');
@@ -47,3 +47,43 @@ export const SeedEnv = z.object({
   SEED_PASSWORD: z.string().min(8).default(SEED_PASSWORD_DEV_DEFAULT),
 });
 export type SeedEnv = z.infer<typeof SeedEnv>;
+
+export interface EnvProblem {
+  name: string;
+  reason: string;
+}
+
+export type EnvResult<T> = { ok: true; env: T } | { ok: false; problems: EnvProblem[] };
+
+// Reads only the schema's keys from `source`, and treats an empty string as missing (FND-01).
+// A problem names the variable and never carries its value.
+export function parseEnv<S extends z.ZodObject>(
+  schema: S,
+  source: Readonly<Record<string, string | undefined>>,
+): EnvResult<z.output<S>> {
+  const picked: Record<string, string | undefined> = {};
+  for (const name of Object.keys(schema.shape)) {
+    const value = source[name];
+    picked[name] = value === '' ? undefined : value;
+  }
+
+  const result = schema.safeParse(picked);
+  if (result.success) return { ok: true, env: result.data };
+
+  const problems: EnvProblem[] = [];
+  for (const issue of result.error.issues) {
+    const name = String(issue.path[0]);
+    if (problems.some((p) => p.name === name)) continue;
+    const value = picked[name];
+    // Zod's messages do not echo the input; the check guards against one that ever does.
+    const reason =
+      value === undefined ? 'missing' : issue.message.includes(value) ? 'invalid' : issue.message;
+    problems.push({ name, reason });
+  }
+  return { ok: false, problems };
+}
+
+export function formatEnvProblems(app: string, problems: readonly EnvProblem[]): string {
+  const lines = problems.map((p) => `  ${p.name}: ${p.reason}`);
+  return [`${app}: invalid environment, refusing to start`, ...lines].join('\n');
+}

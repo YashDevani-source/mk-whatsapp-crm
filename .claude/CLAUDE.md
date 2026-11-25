@@ -7,13 +7,18 @@
 - Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
 - Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Current state (updated 2026-11-25, end of FND phase 1)
-- **Done:** Spec 0 (`BOOT`) is implemented. Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) is **approved**. FND phase 1 of 5 is done: packages installed, FND contracts written (Zod in `packages/shared/src/{env,auth,health,rooms}.ts`, Prisma schema in `packages/db/prisma/schema.prisma`), and every FND criterion has an `it.todo` placeholder test.
-- **Tests:** `pnpm test` passes 80 tests (75 root BOOT tests + 5 package smoke tests) with 24 `it.todo`: BOOT-09 and BOOT-16 (manual), plus 22 FND placeholders covering all 20 FND IDs (FND-01 and 02 appear in both api and worker). typecheck, lint, format:check and traceability pass.
-- **Not built:** all FND behaviour. No routes, no migration, no UI. The apps still print a startup line only; `migrate` and `seed` are still placeholders.
-- **Build plan for FND (5 phases, stop after each, one local commit per phase):** 1 contracts and test skeleton (done) · 2 config and health (FND-01, 02, 03, 19) · 3 database: migrate, constraints, seed (FND-04, 05, 06, BOOT-15 test) · 4 auth and permissions over HTTP (FND-07 to 14, 18) · 5 sockets, manual check, close FND (FND-15, 16, 17, 20).
-- **Next:** FND phase 2, after the user's go-ahead.
-- **Open FND placeholders:** 20 of 20 criteria are still `it.todo`. Traceability counts a todo as covered, so check this count, not just `pnpm traceability`.
+## Current state (updated 2026-11-25, end of FND phase 2)
+- **Done:** Spec 0 (`BOOT`) is implemented. Spec 1 (`FND`, `docs/specs/001-foundation.md`, 20 criteria) is **approved**. FND phases 1 and 2 of 5 are done:
+  - Phase 1: contracts and test skeleton.
+  - Phase 2: config and health (FND-01, 02, 03, 19). The api and worker validate env at boot (`parseEnv` in `packages/shared/src/env.ts`) and exit naming each bad variable. The api serves `GET /health` (Postgres `SELECT 1` and Redis `PING`, 2 s each). `.env.example` exists.
+- **Tests:** `pnpm test` gives 94 passed and 18 `it.todo`.
+  - Passed: 76 root tests (75 BOOT + FND-19) and 18 package tests.
+  - Todo: BOOT-09 and BOOT-16 (manual), plus 16 FND placeholders.
+  - typecheck, lint, format:check and traceability pass.
+- **Not built:** migration, seed data, auth, the route guard, sockets and UI. `migrate` and `seed` are still placeholders. `/health` is not yet behind the FND-13 guard (phase 4 declares it `public`).
+- **Build plan for FND (5 phases, stop after each, one local commit per phase):** 1 contracts and test skeleton (done) · 2 config and health (done) · 3 database: migrate, constraints, seed (FND-04, 05, 06, BOOT-15 test) · 4 auth and permissions over HTTP (FND-07 to 14, 18) · 5 sockets, manual check, close FND (FND-15, 16, 17, 20).
+- **Next:** FND phase 3, after the user's go-ahead. Reuse `createDb` from `@crm/db` (FND Decision 21).
+- **Open FND placeholders:** 16 of 20 criteria are still `it.todo` (FND-04 to 18, and 20). Traceability counts a todo as covered, so check this count, not just `pnpm traceability`.
 - Git: local commits only, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
 - Session notes: `docs/history/`.
 
@@ -21,7 +26,8 @@
 Run from the repo root. Docker must be running for `pnpm test`.
 - Install: `pnpm install` (also runs `prisma generate` for `@crm/db` via its `postinstall`; regenerate by hand with `pnpm --filter @crm/db generate`)
 - Infra: `docker compose up -d --wait` (Postgres 16 on host port 5433, Redis 7 on 6379; dev user/password `crm`/`crm`; databases `crm_dev` and `crm_test`)
-- Dev (web + api + worker): `pnpm dev`
+- Env: `cp .env.example .env`, then fill in `SESSION_SECRET` and `SESSION_ENCRYPTION_KEY` (`openssl rand -hex 32` each). The api and worker `dev` scripts load the root `.env` with `node --env-file-if-exists`. Tests never read `.env`.
+- Dev (web + api + worker): `pnpm dev` (api on port 4000; `curl localhost:4000/health`)
 - Test: `pnpm test` (root tests in `tests/` + every package's tests)
 - Typecheck: `pnpm typecheck`. Lint: `pnpm lint` (ESLint + dependency-direction check)
 - Migrate / seed: `pnpm migrate`, `pnpm seed` (placeholders until FND)
@@ -31,7 +37,8 @@ Run from the repo root. Docker must be running for `pnpm test`.
 - `apps/web`, `apps/api`, `apps/worker`, `packages/shared`, `packages/db`: workspace packages named `@crm/web`, `@crm/api`, `@crm/worker`, `@crm/shared`, `@crm/db`.
 - `scripts/`: `contracts.ts` (shared constants for BOOT), `traceability.ts`, `check-dependency-graph.ts`.
 - `tests/bootstrap/`: tests for the BOOT criteria. `tests/foundation/`: repo-level FND tests (FND-19).
-- FND tests live next to the code they test: `apps/api/src/*.test.ts`, `apps/worker/src/boot.test.ts`, `packages/db/src/*.test.ts`, `packages/shared/src/permissions.test.ts`.
+- FND tests live next to the code they test: `apps/api/src/*.test.ts`, `apps/worker/src/boot.test.ts`, `packages/db/src/*.test.ts`, `packages/shared/src/{env,permissions}.test.ts`.
+- Entry files: `apps/api/src/main.ts` and `apps/worker/src/main.ts` (env check, then start). The api is `app.ts` (`createApp(deps)`, used by tests through supertest), `health.ts` and `redis.ts`. `@crm/db` exports `createDb` and `Db` from `src/client.ts`. `apps/web/src/dev.ts` is still the BOOT placeholder.
 - `packages/db/prisma/` holds `schema.prisma` (later `migrations/`); `packages/db/prisma.config.ts` reads `DATABASE_URL`. The generated client goes to `packages/db/src/generated/prisma/` (gitignored, and ignored by ESLint and Prettier).
 - `docs/`: `plan/` (source documents), `specs/`, `data-flow/`, `history/`.
 

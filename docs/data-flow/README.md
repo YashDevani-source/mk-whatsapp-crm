@@ -1,6 +1,6 @@
 # Data flow: what each route, event and job delivers
 
-Status: **planned, not built.** No route, socket event or queue exists in code yet. Spec 0 built the skeleton, and FND (approved, being built in 5 phases) has fixed the paths of its own routes, marked below. This file turns `docs/plan/data-flow-plan.md` (the source) into a lookup of who calls what and what comes back. It is filled in with real paths when each module's spec is written.
+Status: **planned, mostly not built.** The only route in code is `GET /health` (FND phase 2). No socket event or queue exists yet. Spec 0 built the skeleton, and FND (approved, being built in 5 phases) has fixed the paths of its own routes, marked below. This file turns `docs/plan/data-flow-plan.md` (the source) into a lookup of who calls what and what comes back. It is filled in with real paths when each module's spec is written.
 
 Rule for every flow: validate, write to Postgres, then enqueue or publish, then push to the right browsers. Postgres is always written first.
 
@@ -11,7 +11,7 @@ Paths are not decided yet. Each row says what the route does and which spec will
 | Route (path decided in spec)  | Who may call it                              | Delivers                                                                                 | Spec |
 | ----------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------- | ---- |
 | Login / logout / current user: `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` (paths decided in FND, not built yet) | Anyone (login) / any logged-in user (`auth.session`) | httpOnly session cookie and `{id, name, role}`. The audit entry (also for failed login) is written by AUD, not FND (FND Decision 5). | FND, AUD |
-| Health: `GET /health` (decided in FND, not built yet) | Public | `api`, `postgres`, `redis` each `ok` or `down`; 503 if any is down | FND |
+| Health: `GET /health` (**built**, FND phase 2: `apps/api/src/health.ts`) | Public (declared `public` when the FND-13 guard lands in phase 4) | `api`, `postgres`, `redis` each `ok` or `down` (`HealthResponse`); 200 if all ok, 503 if any is down. Postgres `SELECT 1` and Redis `PING` run in parallel, 2 s limit each. | FND |
 | Send message                  | Assignee, Manager, Super Admin               | `202` + message ID. Message saved as `queued`, job added. `503` if WhatsApp is not connected, `409` if someone else holds the reply lock. | MSG, INB |
 | Take / refresh reply lock     | Anyone allowed to reply in that chat         | Redis lock for the conversation with a short TTL; `conversation.lock` pushed             | INB  |
 | Assign / reassign conversation | Manager, Super Admin                        | New assignee on the conversation and its open lead; LeadHistory and audit rows; `conversation.updated` pushed | INB  |

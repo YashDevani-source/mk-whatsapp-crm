@@ -2,7 +2,7 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phase 1 is done (packages, contracts, placeholder tests). There are still no product features, no HTTP routes and no UI. `pnpm dev` starts three placeholder processes.
+**Current state (2026-11-25):** Spec 0 (the project skeleton and spec tooling) is built. Spec 1 (FND: env, health, schema, seed, auth, permissions, sockets) is approved and being built in 5 phases. Phases 1 (packages, contracts, placeholder tests) and 2 (env validation, `GET /health`, `.env.example`) are done. There are still no product features, no login and no UI. `pnpm dev` starts the api (only `/health` so far) and placeholder web and worker processes.
 
 ## What we did in session 1
 
@@ -28,8 +28,17 @@ Full detail, including what was authorised and what is still open: [docs/history
 ```bash
 pnpm install                    # install all workspace packages
 docker compose up -d --wait     # Postgres 16 and Redis 7, wait until healthy
-pnpm dev                        # starts web, api and worker (placeholders for now)
+cp .env.example .env            # then fill in the two secrets (see below)
+pnpm dev                        # starts web, api and worker
+curl localhost:4000/health      # {"api":"ok","postgres":"ok","redis":"ok"}
 ```
+
+`.env` is gitignored. Two secrets are left blank on purpose. Generate each with `openssl rand -hex 32`:
+
+- `SESSION_SECRET`
+- `SESSION_ENCRYPTION_KEY`
+
+Until both are set, the api and worker refuse to start and name the missing variables. Every variable is explained in `.env.example`. A variable set in your shell overrides the file.
 
 | Service  | Host port | Notes                                                                                                     |
 | -------- | --------- | --------------------------------------------------------------------------------------------------------- |
@@ -43,7 +52,7 @@ Stop the services with `docker compose down` (add `-v` to delete the database vo
 | Command             | What it does                                                                           |
 | ------------------- | -------------------------------------------------------------------------------------- |
 | `pnpm install`      | Install dependencies                                                                   |
-| `pnpm dev`          | Start web, api and worker together                                                     |
+| `pnpm dev`          | Start web, api and worker together (reads the root `.env`)                             |
 | `pnpm test`         | Repo-level tests (`tests/bootstrap`) plus every package's tests. Needs Docker running. |
 | `pnpm typecheck`    | `tsc --noEmit` for the root and all five packages                                      |
 | `pnpm lint`         | ESLint, plus the dependency-direction check                                            |
@@ -84,5 +93,5 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- FND is in progress: phase 1 of 5 done. Next is phase 2, config and `/health`.
+- FND is in progress: phases 1 and 2 of 5 done. Next is phase 3, the database (migrate, constraints, seed).
 - See [docs/history/](docs/history/README.md) for the full open-items list.

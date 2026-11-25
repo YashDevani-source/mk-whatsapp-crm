@@ -1,6 +1,14 @@
-import { describe, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { ApiEnv, WorkerEnv } from '../../packages/shared/src/env.ts';
+import { readText } from '../bootstrap/helpers.ts';
 
-// Placeholder until FND phase 2 turns it into a real test.
 describe('.env.example', () => {
-  it.todo('FND-19 .env.example lists every variable the api and worker env schemas require');
+  it('FND-19 .env.example lists every variable the api and worker env schemas require', () => {
+    const listed = new Set(
+      [...readText('.env.example').matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((m) => m[1]),
+    );
+    const required = new Set([...Object.keys(ApiEnv.shape), ...Object.keys(WorkerEnv.shape)]);
+    const missing = [...required].filter((name) => !listed.has(name));
+    expect(missing).toEqual([]);
+  });
 });

@@ -6,3 +6,4 @@ One file per working session, or per build phase when a spec is built in phases 
 | --- | --- | --- | --- |
 | 2026-11-25 | [2026-11-25-session-1.md](./2026-11-25-session-1.md) | Project brief, Spec 0 (BOOT) drafted, approved and built | BOOT implemented, 75 tests pass, 2 todo; repo initialised |
 | 2026-11-25 | [2026-11-25-fnd-phase-1.md](./2026-11-25-fnd-phase-1.md) | Spec 1 (FND) drafted, verified, approved; FND phase 1 of 5 (contracts, test skeleton) | FND approved; packages installed; contracts written; all 20 FND criteria have `it.todo` placeholders; 80 pass, 24 todo |
+| 2026-11-25 | [2026-11-25-fnd-phase-2.md](./2026-11-25-fnd-phase-2.md) | FND phase 2 of 5 (config and health: FND-01, 02, 03, 19) | Env validation at boot, `GET /health`, `.env.example`; 94 pass, 18 todo; 16 of 20 FND criteria still placeholders |
