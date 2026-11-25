@@ -134,6 +134,14 @@ export async function resetWa(db: Db, redis: Redis): Promise<void> {
   await db.auditLog.deleteMany({ where: { action: { startsWith: 'wa.' }, actorId: null } });
 }
 
+// MSG: removes every message, conversation and contact of the fictional +1999 test range.
+export async function resetMessages(db: Db): Promise<void> {
+  const where = { conversation: { contact: { phone: { startsWith: '+1999' } } } };
+  await db.message.deleteMany({ where });
+  await db.conversation.deleteMany({ where: { contact: { phone: { startsWith: '+1999' } } } });
+  await db.contact.deleteMany({ where: { phone: { startsWith: '+1999' } } });
+}
+
 // --- spawned workers (main.ts), for the lock tests that need a real process ---
 
 const MAIN = fileURLToPath(new URL('./main.ts', import.meta.url));

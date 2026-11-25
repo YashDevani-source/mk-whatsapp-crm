@@ -2,7 +2,7 @@ Status: approved
 
 Drafted and approved 2026-11-25 (session 8). The user's "approved" accepted the draft with Decisions 5 to 16 and the recommended answer to each open point (Decision 17).
 
-Build: phase 1 of 5 done (contracts, `msg-core` migration, `it.todo` for every criterion). Phases 2 to 5 to follow.
+Build: phases 1 and 2 of 5 done (contracts and migration; worker inbound, MSG-01 to MSG-07). The user asked for phases 2 to 5 in one go, with a commit per phase.
 
 # Spec 3: Messages (MSG)
 
@@ -213,6 +213,15 @@ Made during MSG phase 1 (2026-11-25), within the approved build:
 22. Contracts are types only. `nextStatus` is declared as the `NextStatus` type; the function is written in phase 4 after its MSG-20 test. `sendText` was added to `WhatsAppProvider`, so both adapters have a placeholder that rejects with "not built yet" until phase 4 (Fake) and phase 5 (Baileys). The connection manager's event switch now names `close` explicitly and ignores `message` and `status` until phases 2 and 4.
 23. The migration `20261125180408_msg-core` was generated with `prisma migrate diff --from-config-datasource --to-schema` against `crm_dev` (WA Decision 16). The SQL was reviewed: three enums, new columns on `contacts`, `conversations` and `messages`, two indexes, one unique index (`messages_conversation_id_client_id_key`) and the `sent_by_id` foreign key. It drops nothing. Applied to `crm_dev` with `pnpm migrate`; `crm_test` gets it from the test global setups.
 24. Placeholders: `packages/shared/src/messages.test.ts` (MSG-20), `apps/worker/src/messages.test.ts` (MSG-01 to MSG-07, MSG-14 to MSG-19, MSG-21, MSG-22, worker MSG-26), `apps/worker/src/providers/baileys/baileys.test.ts` (MSG-27), `apps/api/src/messages.test.ts` (MSG-08 to MSG-13, MSG-23, api MSG-26), `apps/web/src/messages.test.ts` (MSG-24, MSG-25, MSG-28 manual).
+
+Made during MSG phase 2 (2026-11-25), within the approved build:
+
+25. A from-me message (typed on the company phone, MSG-06) is stored with status `sent`: it reached the CRM through WhatsApp's servers, so WhatsApp has accepted it. Later receipts move it on through `nextStatus` like any outbound message. This is reported by the provider, not invented (MSG-22).
+26. Contract addition: `ProviderEvent` gains `{ type: 'skipped', reason }` with `ProviderSkipReason` (`group`, `broadcast`, `status`, `channel`, `unknown_sender`). The adapter classifies and drops; the worker only logs `@crm/worker: skipped a message (<reason>)`. MSG-04's worker test proves that a skip stores nothing and logs only the reason; the classification itself is tested on the Baileys helpers (MSG-27). Protocol messages are dropped by the adapter without an event (MSG-05).
+27. Row-to-view mappers live in `@crm/db` (`packages/db/src/views.ts`: `messageView`, `conversationSummary`, `messageInclude`, `conversationInclude`, and the enum maps `dbStatus`, `statusOf`, `dbFailureReason`), so the worker and the api build identical payloads. db→shared is an allowed dependency.
+28. Worker layout: `apps/worker/src/messages.ts` (`createMessageHandler`, `publishEvents`, `isUniqueViolation`). `startWaWorker` creates the handler itself and calls it from its in-order event queue, behind the existing generation and lock check (WA Decision 21), so no new worker dependency. One transaction per message: contact upsert, name fill, conversation upsert, message insert, `lastMessageAt` forward-only update. A unique violation is "already stored" when the provider ID exists, otherwise (a contact or conversation created at the same moment) the transaction is retried once.
+29. Known limitation: if storing an inbound message fails (Postgres down), the worker logs `message store failed (<error name>)` and the message is not stored; WhatsApp does not deliver it again. Recorded for the DOC known-limitations list.
+30. The Fake gains `receive`, `skip` and `receiveOnOldConnection` (it keeps the last closed connection). Worker test contacts use the fictional `+1999` range, removed by `resetMessages` in `test-support.ts`. MSG-03 also has a direct test of two concurrent `onMessage` calls for a new number. Mutation check: removing the generation and lock guard for message events made both stale-connection MSG-07 tests fail.
 
 ## Build phases
 

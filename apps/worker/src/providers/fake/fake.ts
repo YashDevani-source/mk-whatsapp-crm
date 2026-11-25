@@ -1,11 +1,13 @@
 // The Fake provider: a simulated WhatsApp connection. Tests drive it directly (emitQr, scan, drop,
-// logoutFromPhone, expireQr, updateCreds, updateKey, failConnects). In `pnpm dev` it shows a
-// simulated QR and pairs itself after `autoPairMs`; the UI labels it "Simulated" (WA-25).
+// logoutFromPhone, expireQr, updateCreds, updateKey, failConnects; MSG: receive, skip,
+// receiveOnOldConnection). In `pnpm dev` it shows a simulated QR and pairs itself after
+// `autoPairMs`; the UI labels it "Simulated" (WA-25).
 import { randomUUID } from 'node:crypto';
 import type {
   ProviderAuthStore,
   ProviderEvent,
   ProviderSendResult,
+  ProviderSkipReason,
   WaProviderName,
   WhatsAppProvider,
 } from '@crm/shared';
@@ -18,6 +20,38 @@ export const FAKE_NUMBER = '+12025550100';
 export interface FakeOptions {
   // When set, an unpaired connection shows one simulated QR and pairs itself after this delay.
   autoPairMs?: number;
+}
+
+// One simulated inbound message (MSG). `from` is E.164; without `unsupportedKind` it is a text.
+export interface FakeInbound {
+  from: string;
+  text?: string;
+  unsupportedKind?: string;
+  id?: string;
+  at?: Date;
+  fromMe?: boolean;
+  profileName?: string;
+}
+
+function inboundEvent(input: FakeInbound): { id: string; event: ProviderEvent } {
+  const id = input.id ?? `FAKE-${randomUUID()}`;
+  return {
+    id,
+    event: {
+      type: 'message',
+      message: {
+        providerMessageId: id,
+        from: input.from,
+        fromMe: input.fromMe ?? false,
+        ...(input.profileName === undefined ? {} : { profileName: input.profileName }),
+        content:
+          input.unsupportedKind === undefined
+            ? { kind: 'text', text: input.text ?? '' }
+            : { kind: 'unsupported', unsupportedKind: input.unsupportedKind },
+        at: input.at ?? new Date(),
+      },
+    },
+  };
 }
 
 interface FakeConnection {
@@ -40,6 +74,8 @@ export class FakeProvider implements WhatsAppProvider {
   closeCalls = 0;
   logoutCalls = 0;
   private conn: FakeConnection | undefined;
+  // The last closed connection, for MSG-07's stale-event tests.
+  private previous: FakeConnection | undefined;
   private failuresLeft = 0;
   private autoPairTimer: NodeJS.Timeout | undefined;
   private readonly options: FakeOptions;
@@ -118,6 +154,26 @@ export class FakeProvider implements WhatsAppProvider {
     await this.require().store.setKeys([{ type, id, value }]);
   }
 
+  // MSG: a customer (or, with `fromMe`, the company phone) sends a message. Returns its id.
+  receive(input: FakeInbound): string {
+    const { id, event } = inboundEvent(input);
+    this.emit(this.require(), event);
+    return id;
+  }
+
+  // MSG-04: the adapter dropped a message and reports only why.
+  skip(reason: ProviderSkipReason): void {
+    this.emit(this.require(), { type: 'skipped', reason });
+  }
+
+  // MSG-07: a message delivered late by a connection that has already been closed.
+  receiveOnOldConnection(input: FakeInbound): string {
+    if (!this.previous) throw new Error('the fake provider has no closed connection');
+    const { id, event } = inboundEvent(input);
+    this.previous.onEvent(event);
+    return id;
+  }
+
   drop(): void {
     this.closeWith('network');
   }
@@ -146,6 +202,7 @@ export class FakeProvider implements WhatsAppProvider {
   }
 
   private detach(): void {
+    if (this.conn) this.previous = this.conn;
     this.conn = undefined;
     if (this.autoPairTimer) clearTimeout(this.autoPairTimer);
     this.autoPairTimer = undefined;

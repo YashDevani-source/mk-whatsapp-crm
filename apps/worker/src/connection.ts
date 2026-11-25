@@ -1,6 +1,7 @@
 // The WhatsApp connection manager: takes the single-session lock, drives the provider through the
 // connection states, publishes `wa.state` and `wa.qr`, reconnects with backoff and acts on admin
-// commands. Only the lock holder ever connects or publishes (WA-02 to WA-05).
+// commands. Only the lock holder ever connects or publishes (WA-02 to WA-05). MSG: it hands the
+// current connection's messages to the message handler (MSG-07).
 import { randomUUID } from 'node:crypto';
 import type { Db } from '@crm/db';
 import {
@@ -20,6 +21,7 @@ import type { Redis } from 'ioredis';
 import { reconnectDelay } from './backoff.ts';
 import { packageName } from './index.ts';
 import { createLock } from './lock.ts';
+import { createMessageHandler } from './messages.ts';
 import { SessionUnreadable, type SessionStore } from './session-store.ts';
 
 export interface WorkerConfig {
@@ -64,6 +66,7 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
   const lock = createLock(redis, workerId, config.lockTtlMs);
   const heartbeatMs = Math.max(50, Math.floor(config.lockTtlMs / 3));
   const retryMs = Math.max(50, Math.floor(config.lockTtlMs / 6));
+  const messages = createMessageHandler({ db, redis, channels, log });
 
   let stopped = false;
   let holding = false;
@@ -167,8 +170,12 @@ export function startWaWorker(deps: WorkerDeps): WaWorker {
         await store.recordNumber(event.number).catch((e: unknown) => failure('record number', e));
     } else if (event.type === 'close') {
       await onClose(event.reason);
+    } else if (event.type === 'message') {
+      await messages.onMessage(event.message).catch((e: unknown) => failure('message store', e));
+    } else if (event.type === 'skipped') {
+      messages.onSkipped(event.reason);
     }
-    // `message` and `status` events are handled from MSG phase 2 (inbound) and phase 4 (status).
+    // `status` events are handled from MSG phase 4.
   }
 
   async function onClose(reason: ProviderCloseReason): Promise<void> {

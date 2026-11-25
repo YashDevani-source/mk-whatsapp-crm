@@ -108,8 +108,12 @@ export function workerOfflineState(at: Date = new Date()): WaState {
 // a QR scan). `replaced` means another client took over the same credentials.
 export type ProviderCloseReason = 'network' | 'restart' | 'logged_out' | 'qr_timeout' | 'replaced';
 
-// MSG: one message as the provider reports it. `from` is E.164. Skipped messages (groups,
-// broadcasts, unknown sender, protocol messages; MSG-04, MSG-05) never become events.
+// MSG-04: why an adapter dropped a message. Only the reason reaches the worker, for its log;
+// never the number or the text. Protocol messages (reactions, edits, deletions; MSG-05) are
+// dropped without an event.
+export type ProviderSkipReason = 'group' | 'broadcast' | 'status' | 'channel' | 'unknown_sender';
+
+// MSG: one message as the provider reports it. `from` is E.164.
 export interface ProviderInboundMessage {
   providerMessageId: string;
   from: string;
@@ -125,6 +129,7 @@ export type ProviderEvent =
   | { type: 'open'; number?: string }
   | { type: 'close'; reason: ProviderCloseReason }
   | { type: 'message'; message: ProviderInboundMessage }
+  | { type: 'skipped'; reason: ProviderSkipReason }
   | { type: 'status'; providerMessageId: string; status: ReportedStatus; at: Date };
 
 // What `sendText` returns: WhatsApp's id for the message, and when it was accepted (MSG-14).

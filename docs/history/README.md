@@ -21,3 +21,4 @@ One file per working session, or per build phase when a spec is built in phases 
 | 2026-11-25 | [2026-11-25-session-7-summary.md](./2026-11-25-session-7-summary.md) | Session 7 summary | WA closed (WA-01 to WA-28); dev stopped, test number still linked; next: MSG spec |
 | 2026-11-25 | [2026-11-25-msg-spec-draft.md](./2026-11-25-msg-spec-draft.md) | Spec 3 (MSG) drafted | `docs/specs/003-messaging.md`, `Status: draft`, MSG-01 to MSG-28; no code; awaiting review |
 | 2026-11-25 | [2026-11-25-msg-phase-1.md](./2026-11-25-msg-phase-1.md) | MSG approved; MSG phase 1 of 5 (package, contracts, migration, test skeleton) | `bullmq` 6.7.5, `messages.ts` contracts, `msg-core` migration; 177 pass, 34 todo |
+| 2026-11-25 | [2026-11-25-msg-phase-2.md](./2026-11-25-msg-phase-2.md) | MSG phase 2 of 5 (worker inbound: MSG-01 to MSG-07) | Inbound store, dedupe, publish; 188 pass, 27 todo |
