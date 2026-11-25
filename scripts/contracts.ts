@@ -1,4 +1,3 @@
-// Contracts for Spec 0 (BOOT): shared constants and types that the BOOT tests assert against.
 // Types and constants only, no behaviour. Source of truth: docs/specs/000-bootstrap.md.
 
 export const PACKAGES = [

@@ -1,62 +1,42 @@
-# Real-estate WhatsApp CRM: project brief for every Claude Code session
+# Real-estate WhatsApp CRM: context for every Claude Code session
 
 ## Project
-- A web CRM for one real-estate company. The whole sales team handles every customer enquiry through the company's single WhatsApp number, from one shared dashboard.
-- Users: 1 Super Admin, Managers, up to 10 Employees.
-- Flow: customer messages the company number → shared inbox → manager assigns the chat to an employee → employee replies through the CRM → customer sees a normal WhatsApp message from the company.
-- Every conversation is linked to a lead that moves from first enquiry to a closed deal.
-- Uses a test WhatsApp number and test contacts only. Anything simulated must be labelled as simulated in the UI.
+- A web CRM for one real-estate company. The whole sales team handles every customer enquiry through the company's single WhatsApp number, from one shared inbox.
+- Users: 1 Super Admin, Managers, up to 10 Employees. Customer messages the number → shared inbox → manager assigns to an employee → employee replies in the CRM → customer sees a normal WhatsApp message.
+- Every conversation is linked to a lead (7 stages, New to Converted or Lost). Also: properties, follow-ups, safe campaigns, reports, audit log.
+- Prototype for MK Agency's developer assessment, built in 2–3 days (2026-11-25 to 11-27) with a test WhatsApp number and test contacts only. Anything simulated is labelled as simulated in the UI.
+- Stack: React + TS, Node/Express + TS, Socket.io, PostgreSQL + Prisma, Redis + BullMQ, Baileys (pinned) in a separate worker behind a provider interface.
 
-## Modules
-| Module | What it does |
-|---|---|
-| WhatsApp connection | Admin scans a QR code. Status: connected, disconnected or reconnect-required. Reconnects after a server restart without a new QR. Alerts the admin when the connection drops. |
-| Shared inbox | Chat list and chat panel. Assign and reassign. Open / pending / closed states plus an unread count. Internal notes (never sent to WhatsApp). A "someone is replying" lock. Sending user shown on every message. |
-| Leads | Customer details and property needs (budget, location, type, BHK). Seven stages from New to Converted or Lost. Assignment and full change history. Created automatically from new enquiries; at most one open lead per contact. |
-| Properties | Projects and units with photos and brochure PDFs. Search. Share a property into a chat. |
-| Follow-ups | Reminders, overdue and upcoming lists. Test-mode auto-replies. Never sends the same reminder twice. |
-| Campaigns | CSV import with validation, segments, preview and confirm. Queued sending at a controlled rate, pause/resume. Opt-out list checked before every message. Test-numbers-only switch, on by default. |
-| Users and roles | Super Admin, Manager, Employee, checked on the server. Employees see only their own chats and leads. Deactivating a user keeps their history. |
-| Dashboard and reports | Counts of leads, chats, follow-ups. Per-employee performance. Filters and CSV export. Tables, not charts. |
-| Audit log | Append-only record of logins, assignments, stage changes, campaign actions, WhatsApp connects/disconnects. |
+## Current state (updated 2026-11-25)
+- **Done:** Spec 0 (`BOOT`, `docs/specs/000-bootstrap.md`, status approved) is implemented. `pnpm test` passes 75 tests (+2 `it.todo`: BOOT-09, BOOT-16, both manual). typecheck, lint, format:check and traceability pass.
+- **Not built:** every product feature. The apps are placeholders that print a startup line. There are no routes, no Prisma models and no UI. `migrate` and `seed` are no-op placeholders.
+- **Next:** write the FND spec (auth, roles, env validation, schema, seed). Use the template at `docs/specs/_template.md`.
+- Git: repo initialised, two local commits, no remote. `node_modules/` is still in the first commit (`a207d9c`); squash before pushing.
+- Session notes: `docs/history/`.
 
-## Tech stack
-- Frontend: React + TypeScript, Socket.io client.
-- API: Node.js + Express + TypeScript, Socket.io server.
-- Database: PostgreSQL + Prisma. Unique constraints are the main defence against duplicates.
-- Queue and cache: Redis + BullMQ (sending, campaigns, reminders, retries, reply lock).
-- WhatsApp: Baileys (pinned version) in a **separate worker process**, session stored encrypted in Postgres.
-- Files: S3 or local disk, served through signed URLs. Uploads checked by real content, not extension.
-- Monorepo: `apps/web`, `apps/api`, `apps/worker`, `packages/shared` (Zod schemas, types, events, provider interface, permissions), `packages/db` (Prisma).
-- Key design decision: the app talks to WhatsApp only through a provider interface. Baileys is the adapter for now and can later be swapped for the official WhatsApp Cloud API. Only the worker's adapter imports Baileys.
+## Commands
+Run from the repo root. Docker must be running for `pnpm test`.
+- Install: `pnpm install`
+- Infra: `docker compose up -d --wait` (Postgres 16 on host port 5433, Redis 7 on 6379; dev user/password `crm`/`crm`; databases `crm_dev` and `crm_test`)
+- Dev (web + api + worker): `pnpm dev`
+- Test: `pnpm test` (root tests in `tests/bootstrap/` + every package's tests)
+- Typecheck: `pnpm typecheck`. Lint: `pnpm lint` (ESLint + dependency-direction check)
+- Migrate / seed: `pnpm migrate`, `pnpm seed` (placeholders until FND)
+- Traceability: `pnpm traceability`. Format: `pnpm format` / `pnpm format:check`
 
-## Data flows
-- **Incoming:** WhatsApp → worker → Postgres (unique message ID blocks duplicates) → Redis event → API → live push to the right browsers → contact and lead created if new.
-- **Outgoing:** employee clicks send → API checks permission and reply lock → message saved as `queued` → BullMQ job → worker sends → real WhatsApp status saved. Ticks only move forward.
-- **Campaign:** segment → preview → confirm → queued at controlled speed → opt-out checked before each message → unique (campaign, contact) key prevents double sends, even after a crash.
+## Layout
+- `apps/web`, `apps/api`, `apps/worker`, `packages/shared`, `packages/db`: workspace packages named `@crm/web`, `@crm/api`, `@crm/worker`, `@crm/shared`, `@crm/db`.
+- `scripts/`: `contracts.ts` (shared constants for BOOT), `traceability.ts`, `check-dependency-graph.ts`.
+- `tests/bootstrap/`: tests for the BOOT criteria.
+- `docs/`: `plan/` (source documents), `specs/`, `data-flow/`, `history/`.
 
-## Workflow (spec-driven)
-Every feature starts as a short spec with numbered acceptance criteria (e.g. `INB-03`).
-1. Spec
-2. Contracts (Zod, Prisma, event and job types)
-3. Failing tests titled with the criterion ID
-4. Code until the tests pass
-5. Verify
-
-If a spec is wrong: update the spec, then the test, then the code. Never build something no criterion asks for.
-
-## Build order
-- **Phase 1, prove the core works:** foundation, login and roles, Baileys worker, QR page, incoming and outgoing flows, duplicate protection.
-  Checkpoint: message the test number from a phone, see it in the CRM, reply, receive the reply on the phone. Restart the server and it stays connected.
-- **Phase 2, make it a CRM:** inbox UI, leads, properties, follow-ups, audit log.
-  Checkpoint: two employees in two browsers see the same chat live, the reply lock works, a lead moves through its stages with history recorded.
-- **Phase 3, extras and documents:** campaigns in safe mode, reports, then the documents.
-  Checkpoint: an end-to-end run through every module.
-
-## Priorities
-- Must really work: QR connection, live inbox, real replies.
-- Can be simplified (and labelled): automations as "Run now (test)" buttons, CSV-only export, tables instead of charts.
-- Never: fake delivered/read ticks, real customer numbers, unsolicited bulk sending.
+## Conventions in force
+- Test titles start with the criterion ID, no brackets: `BOOT-06 …`. Manual criteria use `it.todo('ID …')`. `pnpm traceability` ignores specs with `Status: draft` only.
+- Enforced by `pnpm lint`: no explicit `any`; Baileys (`@whiskeysockets/baileys`, `baileys`, `@adiwajshing/baileys`) only imported inside `apps/worker/src/providers/baileys/`; `apps/web` never imports `@crm/db`.
+- Allowed internal dependencies: web→shared; api→shared,db; worker→shared,db; db→shared.
+- All tsconfigs extend `tsconfig.base.json` (strict). TypeScript is pinned to `~6.0.3` because typescript-eslint does not support 7 yet.
+- Node 24 LTS is the target (`.nvmrc`). Local Node is 22.22, which works with an engine warning.
+- Prettier ignores `docs/` and `.claude/`; everything else must pass `pnpm format:check`.
 
 ## Hard rules
 - Role checks happen on the server (routes and socket rooms). Hiding something in React is not security.
@@ -65,12 +45,40 @@ If a spec is wrong: update the spec, then the test, then the code. Never build s
 - TypeScript strict mode, no `any`. Zod schemas in `packages/shared` are the single source of truth for every data shape.
 - Never fake WhatsApp delivered/read ticks. Show only what the provider reported.
 - Test numbers and test contacts only. No unsolicited bulk sending.
-- Only `apps/worker` imports Baileys.
+- Only `apps/worker` imports Baileys, and only inside its adapter folder.
 - No feature code without a spec criterion. One module at a time.
+- Priorities: must really work = QR connection, live inbox, real replies. May be simplified and labelled = automations as "Run now (test)", CSV-only export, tables not charts.
+
+## Workflow (spec-driven)
+1. Spec (criteria `AREA-NN`, never reused; dropped ones are struck through)
+2. Contracts (Zod, Prisma, event and job types; types only)
+3. Failing tests titled with the criterion ID
+4. Code until they pass
+5. Verify (the spec's manual check)
+
+If a spec is wrong: update the spec, then the test, then the code. Write decisions into the spec's Decisions list.
+
+## Context map (read only when the task needs it)
+| File | Read when |
+|---|---|
+| `docs/plan/project-summary.md` | Module list, tech stack, the 7-step final demo |
+| `docs/plan/development-plan.md` | Spec areas and prefixes, phases and build order, test strategy, definition of done |
+| `docs/plan/Architure-plan.md` | Processes, dependency directions, provider interface, data model, security, reliability |
+| `docs/plan/data-flow-plan.md` | Any flow, state machine, event or queue |
+| `docs/data-flow/README.md` | Which route, event or queue delivers what (planned, no real paths yet) |
+| `docs/specs/000-bootstrap.md` | BOOT criteria and Decisions |
+| `docs/history/` | What happened in earlier sessions and what was authorised |
+| `README.md` | How to run the project |
 
 ## Session protocol
-- Do not write code until the user gives an explicit go-ahead. Summarise, flag risks, ask questions first.
+- Do not write code until the user gives an explicit go-ahead. Summarise, flag risks, ask questions first; approval of one step covers only that step.
+- Confirm before hard-to-reverse or outward-facing actions (git history rewrites, pushes, deleting data). Starting Docker or installing packages needs the step's go-ahead.
+- At the end of a session, add a file to `docs/history/` and update "Current state" above.
 
 ## Open items
-- TODO: `docs/plan/project-summary.md` and `docs/plan/spec-driven-plan.md` are not in the repo. Criterion IDs, the 7 lead stage names and numeric targets come from them. Do not invent these.
-- TODO: install, dev, test, typecheck, lint and migrate commands. The repo is not scaffolded yet.
+- Folder rename to `mk-whatsapp-crm` is agreed but not done (the folder and its parent `Projects ` end with a space). Memory is keyed by path: copy it after the move.
+- Lead stage names (7), reply-lock timeout and Manager override, and whether closing a chat closes its lead are undecided. Take them from the LEAD and INB specs; do not invent them.
+- `docs/specs/FND.md` does not exist yet; BOOT's "Overlap with FND" is unconfirmed until it does.
+- Specs for every module after BOOT are unwritten.
+- CI (`.github/workflows/ci.yml`) has not run; needs a GitHub repo.
+- Suggested but not specced: CI check for the exact Baileys version pin, struck-through and duplicate IDs in traceability, `format:check` in CI, `.env.example`.
