@@ -22,5 +22,6 @@ Purpose: record what was done, who authorised it, and where it ended. Session 7,
 - Fixed: the WA-28 tests use db 9 (unused) and never publish or listen on db 0 (spec Decision 43, extended). Checked the other tests: only `boot.test.ts` (spawned api, publishes nothing) and `health.test.ts` (`PING`) touch db 0.
 - Re-run with a recorder on `crm:events:0` and `wa:commands:0`: 0 messages during the whole `pnpm test` (17:45:40 to 17:47:51), 0 dropped events in the dev api, 177 passed. One local commit.
 
-## Still to do
-- The test number must be paired again (the incident logged it out). Then a live check: run `pnpm test` while the dev stack is connected and confirm the dev worker stays `connected`.
+## Live proof (done)
+- The user paired the test number again (connected 17:50:34). With a recorder on `crm:events:0` and `wa:commands:0`, `pnpm test` ran from 17:50:46 to 17:52:57: 177 passed, 0 messages on the dev channels, 0 dropped events in the dev api, no new `wa.*` audit rows, and the dev worker stayed `connected`.
+- The dev stack (`WHATSAPP_PROVIDER=baileys`) is left running and connected for the user.
