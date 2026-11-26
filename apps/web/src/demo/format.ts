@@ -51,3 +51,14 @@ export function initials(name: string): string {
 export function countOf(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
 }
+
+// "11:01" today, "Yesterday", else "24 Nov": the time on dashboard rows (DEMO-38).
+export function formatClock(iso: string, now: Date): string {
+  const d = new Date(iso);
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}

@@ -9,6 +9,8 @@ import { DemoProvider } from './context.tsx';
 import { buildSeed } from './seed.ts';
 import { setVisibilityCheck, startSimulator } from './sim.ts';
 import { DemoStore, STORAGE_KEY } from './store.ts';
+import { applyTheme, browserStorage, readTheme } from './theme.ts';
+import '@fontsource-variable/inter';
 import './demo.css';
 
 const SESSION_KEY = 'crm-demo-session';
@@ -26,13 +28,15 @@ function brandTab(): void {
   const icon = document.createElement('link');
   icon.rel = 'icon';
   icon.href = `data:image/svg+xml,${encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#3b5bdb"/><text x="16" y="21" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">SR</text></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#1d1d1f"/><text x="16" y="21" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">SR</text></svg>',
   )}`;
   document.head.append(icon);
 }
 
 export function mountDemo(root: HTMLElement): void {
   brandTab();
+  // Before the first render, so the page never flashes the other theme (DEMO-36, Decision 42).
+  applyTheme(readTheme(browserStorage()));
   const now = (): Date => new Date();
   const store = new DemoStore(localStorage, () => buildSeed(now()));
   const bus = new DemoBus('crm-demo');
