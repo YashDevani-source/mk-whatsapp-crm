@@ -195,6 +195,7 @@ These guided the demo build; DEMO followed them (shapes from `@crm/shared`, test
 - `apps/web/src/main.tsx` picks the demo (`vite --mode demo` or `VITE_DEMO=1`, `mode.ts`) or the live app. Live mode is unchanged.
 - `apps/web/src/demo/`: `seed.ts` (dataset, times relative to now), `store.ts` (Zod-checked `localStorage`, raw-text cache, `sync()`), `api.ts` (one async function per future route; checks session, role, Employee scope, reply lock), `engine.ts` (state changes shared with the simulator), `sim.ts` (stored tasks: QR refresh, reconnect, ticks, agent replies, campaign steps, auto enquiries; run by every tab), `bus.ts` (real socket event names plus drafts, `BroadcastChannel` to other tabs), and one file per screen.
 - Shapes: the MSG schemas plus the draft contracts in `packages/shared/src/crm.ts` (leads, properties, follow-ups, campaigns, users, audit, inbox extras). The real INB, LEAD, PROP, FUP, CAMP, USR, RPT and AUD specs start from these and from the demo api's function list.
+- Look (phase 6, DEMO-35/36): a dark theme from the CSS tokens in `demo.css` (demo entry only), sidebar icons (`icons.tsx`), dashboard charts drawn as plain SVG (`charts.tsx`, `dashboard-page.tsx`, numbers from `reports.ts`), and a framed login page with a decorative Skyline artwork (`login-art.tsx`) and one-click demo accounts.
 - Placeholders until the real specs: lead stage names, the 60 s reply lock with Manager take-over, chats closing without closing their lead.
 
 

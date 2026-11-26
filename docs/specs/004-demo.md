@@ -1,6 +1,6 @@
 Status: approved
 
-Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: all 5 phases built. DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20 and DEMO-22 to DEMO-31 have passing tests. The manual DEMO-02, DEMO-14, DEMO-21, DEMO-32 and DEMO-34 were checked in headless Chrome (see Manual check results). DEMO-33, the walk-through in a real browser, waits for the user. Phase 6 (DEMO-35, DEMO-36: dashboard charts and a dark theme) was added on 2026-11-26 at the user's request.
+Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: all 5 phases built. DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20 and DEMO-22 to DEMO-31 have passing tests. The manual DEMO-02, DEMO-14, DEMO-21, DEMO-32 and DEMO-34 were checked in headless Chrome (see Manual check results). DEMO-33, the walk-through in a real browser, waits for the user. Phase 6 (DEMO-35, DEMO-36: dashboard charts and a dark theme, plus the login redesign of Decision 38) was added on 2026-11-26 at the user's request and committed as `2e52d50`; its rules have passing tests and its manual checks are recorded below.
 
 Drafted 2026-11-26 (session 9) after the user changed the flow: "complete this project with dummy data and dummy api responses with dummy logins and dummy qrs for prototype". The user chose (Decision 1): a mock mode inside the web app, a light spec with smoke tests, react-router with plain CSS, and live activity by buttons plus a gentle auto mode.
 
@@ -160,8 +160,8 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 | DEMO-32 | Pass. Priya's home: her unread chats, today's and overdue follow-ups, her leads by stage. |
 | DEMO-34 | Pass. `build:demo` writes `404.html` and `_redirects`. Deep links (`/leads/<id>`, `/campaigns/opt-outs`, `/properties/<id>`) open on `preview:demo` and on a plain static server that serves files and `404.html` only (GitHub Pages behaviour). |
 | DEMO-33 | Waiting for the user. A scripted run of the README walk-through in two tabs (Neha, Priya) passed steps 1 to 4 and 6; steps 5 and 7 were checked in phase 4. |
-| DEMO-35 | Waiting for phase 6's check. |
-| DEMO-36 | Waiting for phase 6's check. |
+| DEMO-35 | Pass (headless Chrome, 1440 px and phone width). Aarav's dashboard shows the greeting and date, the four number cards with the sparkline and month counts, 14 days of new chats as labelled bars, the leads-by-stage donut with counts and percentages, team workload with a legend, follow-ups and campaign bars, and the Unassigned and Overdue tiles with their links. Every chart carries text values or a legend. |
+| DEMO-36 | Pass with one gap (headless Chrome). Every page as Aarav, Vikram's home and phone widths render in the dark theme: shell, sidebar icons, banner, inbox, lead panel, drawers and dialogs; Simulated tags and status chips stay readable. The keyboard focus ring (`:focus-visible`, `--focus`) was checked in the CSS only, not in a screenshot: confirm it during DEMO-33. The login page (Decision 38) was shot at 1440, 820 and 390 px. |
 
 ## Proposed changes
 
