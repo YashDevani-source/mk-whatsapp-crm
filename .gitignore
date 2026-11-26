@@ -6,3 +6,8 @@ dist/
 !.env.example
 .DS_Store
 packages/db/src/generated/
+
+# Local AI-tool files (DEMO Decision 18)
+.agents/
+.aider-desk/
+skills-lock.json

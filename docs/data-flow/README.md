@@ -92,6 +92,23 @@ States: `connecting` → `qr_required` → `connected`; a network drop gives `di
 
 The worker and the API never call each other directly. They talk only through Redis and the database.
 
+## Demo mode (built, DEMO): the same paths inside the browser
+
+Demo mode (`apps/web/src/demo/`, `docs/specs/004-demo.md`) runs every path above without the api, worker, Postgres, Redis or WhatsApp:
+
+| Real piece | Demo stand-in |
+| --- | --- |
+| HTTP routes | `api.ts`: one async function per future route, 150–400 ms simulated delay; it reads the session from `sessionStorage` and checks role, Employee scope and reply lock like a route would |
+| Postgres | `store.ts`: one Zod-checked document in `localStorage` (`crm-demo-v1`); rows mapped to `@crm/shared` views by `views.ts` |
+| Worker and BullMQ | `sim.ts` + `engine.ts`: scheduled tasks stored in the document (QR refresh, connect, reconnect, `sent`/`delivered`/`read` via `nextStatus`, a simulated agent's reply, one campaign send every ~2 s, an auto enquiry every ~45 s); every tab runs due tasks, each runs once |
+| Redis pub/sub and Socket.io | `bus.ts`: the real event names (`wa.state`, `wa.qr`, `message.created`, `message.status`, `conversation.updated`) plus drafts (`lock.changed`, `conversation.assigned`); a `BroadcastChannel` carries them to the other tabs, which sync the store first |
+| WhatsApp | Simulated, labelled everywhere: QR, scan, drop and reconnect, ticks, failures (one contact always fails) |
+
+- **Incoming (simulated):** Demo controls or the auto enquiry → `engine.receiveInbound` (contact, conversation, New lead when needed, reopen a closed chat, unread +1, STOP → opt-out) → `message.created` + `conversation.updated` → toasts for users who may see the chat.
+- **Outgoing:** composer → `api.sendMessage` (role, scope, 1–4096 characters, connected, not locked by someone else) → message `queued` → stored status tasks → `message.status` updates, forward only.
+- **Campaign:** wizard checks rows → `api.createCampaign` checks again → `campaign_step` task every ~2 s re-checks opt-outs, waits while disconnected, completes with an audit row.
+- **Two tabs:** each write starts from the newest saved copy; tabs sync on the `storage` event, every 1 s, before every api call, and before delivering an event from another tab.
+
 ## TODO
 
 - Real route paths and verbs, once INB, LEAD, PROP, FUP, CMP and RPT specs are written.

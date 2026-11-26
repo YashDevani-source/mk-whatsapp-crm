@@ -1,6 +1,6 @@
 # How the application works (state on 2026-11-26)
 
-A reference for the backend and WhatsApp work done so far, written before the focus moves to the UI, dummy flows and dummy data for the prototype. It describes what is **built and committed** (last code commit `f205b0b`, MSG phase 5). For the detail behind any line, follow the spec and decision numbers into `docs/specs/`.
+A reference for what is **built and committed**: the live stack (FND, WA, MSG; sections 1 to 10) and the browser-only demo mode (DEMO, section 11b; last commit `2dc3f83`). For the detail behind any line, follow the spec and decision numbers into `docs/specs/`.
 
 ## 1. What the product is
 
@@ -172,14 +172,16 @@ Tables built so far: `users`, `contacts` (with `is_test`), `conversations`, `mes
 
 Not built yet: leads and lead history, assignments, notes, properties and media, follow-ups, campaigns and recipients, unread counts.
 
-## 10. Web app today
+## 10. Live web app
 
 - Files: `App.tsx`, `pages.tsx` (login, connection, home), `messages-page.tsx`, `useMessages.ts`, `useWhatsApp.ts`, `messages-view.ts`, `view.ts` (`tabsFor`, banner text), `api.ts` (fetch calls), `styles.css`.
 - Tabs by role (`tabsFor`): Super Admin → Connection, Messages; Manager → Messages; Employee → Home.
 - The banner always shows the WhatsApp state; with the Fake provider it carries a **Simulated** tag.
 - The Messages tab lists conversations, shows the thread, sends text, and updates live from socket events.
 
-## 11. Notes for the UI / dummy-data phase
+## 11. Notes written before the dummy-data phase (kept for the record)
+
+These guided the demo build; DEMO followed them (shapes from `@crm/shared`, test numbers only, everything simulated labelled, rules enforced in the demo api). Section 11b describes the result.
 
 - **Run with plain `pnpm dev`** (Fake provider). It is labelled Simulated and leaves the real session alone.
 - **No messages arrive by themselves with the Fake.** `FakeProvider.receive()` (and `report()`, `failSends()`, `delaySends()`) in `apps/worker/src/providers/fake/fake.ts` exist for tests only; nothing in the dev UI or api triggers them. Dummy inbound traffic needs either a new simulated-only hook or seeded rows.
@@ -211,6 +213,8 @@ Not built yet: leads and lead history, assignments, notes, properties and media,
 | Every route, event, queue, Redis key | `docs/data-flow/README.md` |
 | WhatsApp criteria and decisions | `docs/specs/002-whatsapp.md` |
 | Messaging criteria and decisions | `docs/specs/003-messaging.md` |
+| Demo mode criteria, decisions, manual check results | `docs/specs/004-demo.md` |
+| How to run the demo, accounts, the walk-through | `README.md` "Demo mode" |
 | Module list and the 7-step final demo | `docs/plan/project-summary.md` |
 | Build order and phases | `docs/plan/development-plan.md` |
 | Session-by-session record | `docs/history/` |

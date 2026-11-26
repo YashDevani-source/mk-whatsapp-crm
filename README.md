@@ -179,8 +179,9 @@ Spec-driven: spec, then contracts, then failing tests titled with the criterion 
 ## Known gaps
 
 - CI has not run yet; it needs a GitHub repo.
-- Specs after MSG (INB, LEAD, …) are not written yet. Until INB, Employees cannot see or send messages, there is no assignment, reply lock or unread count, and only text messages are handled (media shows as "Unsupported message").
-- The MSG real-phone check (MSG-28) is in progress.
+- **Live mode** has FND, WA and MSG only. The real specs after MSG (INB, LEAD, …) are not written; in live mode Employees cannot see or send messages, there is no assignment, reply lock or unread count, and only text messages are handled (media shows as "Unsupported message"). Every module is clickable in **demo mode** instead, on dummy data and a simulated WhatsApp.
+- The MSG real-phone check (MSG-28) is open.
+- Demo mode: the final walk-through in a real browser (DEMO-33) is still to be done by the user; the demo build is not hosted anywhere yet. Lead stage names and the reply-lock rules are placeholders until the LEAD and INB specs.
 - If the computer sleeps, the worker loses its WhatsApp lock on wake and takes it again (with Baileys, a reconnect without a QR). Keep the machine awake during a demo.
 - The Baileys pin is a release candidate (`7.0.0-rc14`, npm's `latest`); see WA Decision 6.
 - See [docs/history/](docs/history/README.md) for the full open-items list.
