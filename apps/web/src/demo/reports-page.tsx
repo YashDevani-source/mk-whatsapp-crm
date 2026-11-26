@@ -1,14 +1,12 @@
-// DEMO-30 to DEMO-32: the per-employee report with CSV export, the read-only
-// audit log, and the Employee home. Tables, not charts (the dashboard is dashboard-page.tsx).
+// DEMO-30, DEMO-31, DEMO-35: the per-employee report with its charts (moved from the dashboard
+// in phase 7, Decision 40) and CSV export, and the read-only audit log. The Employee home is
+// dashboard-page.tsx (DEMO-39).
 import { AuditAction, LEAD_STAGE_LABELS, LeadStage, type AuditEntry } from '@crm/shared';
 import { useState } from 'react';
-import { Link } from 'react-router';
-import { useLive, useNow, useUser } from './context.tsx';
-import { countOf, formatDateTime, formatPhone } from './format.ts';
+import { useLive } from './context.tsx';
+import { countOf, formatDateTime } from './format.ts';
+import { ReportCharts } from './report-charts.tsx';
 import { employeeReportCsv, filterAudit, type ReportFilter } from './reports.ts';
-import { followUpTab } from './rules.ts';
-import { Donut, Legend } from './charts.tsx';
-import { STAGE_COLOR } from './dashboard-page.tsx';
 import { Chip, Empty, ErrorNote, PageHeader, Skeleton, StatStrip, Tag } from './ui.tsx';
 
 function downloadText(fileName: string, text: string): void {
@@ -69,6 +67,10 @@ export function ReportsPage() {
           </button>
         }
       />
+      <ReportCharts />
+      <div className="section-head report-head">
+        <h2>Per-employee report</h2>
+      </div>
       {report.data && (
         <StatStrip
           label="Totals for the rows shown"
@@ -337,116 +339,6 @@ export function AuditPage() {
           </table>
         </div>
       )}
-    </>
-  );
-}
-
-// DEMO-32: an Employee's own unread chats, today's and overdue follow-ups, and leads by stage.
-export function HomePage() {
-  const user = useUser();
-  const now = useNow(30_000);
-  const chats = useLive((a) => a.listConversations(), 'conversations');
-  const followUps = useLive((a) => a.listFollowUps(), 'followups');
-  const leads = useLive((a) => a.listLeads(), 'leads');
-  const unread = (chats.data ?? []).filter((c) => c.unreadCount > 0);
-  const due = (followUps.data ?? []).filter((f) =>
-    ['overdue', 'today'].includes(followUpTab(f, now)),
-  );
-  const stageParts = LeadStage.options.map((stage) => ({
-    label: LEAD_STAGE_LABELS[stage],
-    value: (leads.data ?? []).filter((l) => l.stage === stage).length,
-    color: STAGE_COLOR[stage],
-  }));
-
-  return (
-    <>
-      <PageHeader
-        title={`Hello, ${user.name.split(' ')[0]}`}
-        subtitle={`${countOf(unread.length, 'chat waits', 'chats wait')} for you and ${countOf(due.length, 'follow-up is', 'follow-ups are')} due today or overdue.`}
-      />
-      <StatStrip
-        label="Your work"
-        stats={[
-          {
-            key: 'unread',
-            label: 'Unread chats',
-            value: unread.length,
-            hint: 'Customers waiting',
-            tone: 'blue',
-          },
-          {
-            key: 'overdue',
-            label: 'Overdue',
-            value: due.filter((f) => followUpTab(f, now) === 'overdue').length,
-            hint: 'Follow-ups past due',
-            tone: 'red',
-          },
-          {
-            key: 'today',
-            label: 'Due today',
-            value: due.filter((f) => followUpTab(f, now) === 'today').length,
-            hint: 'Follow-ups later today',
-            tone: 'yellow',
-          },
-          {
-            key: 'open',
-            label: 'Open leads',
-            value: (leads.data ?? []).filter((l) => l.stage !== 'converted' && l.stage !== 'lost')
-              .length,
-            hint: 'Yours to move on',
-            tone: 'neutral',
-          },
-        ]}
-      />
-      <div className="three-col">
-        <section className="card">
-          <h2>Unread chats</h2>
-          {chats.loading && <Skeleton rows={3} />}
-          {!chats.loading && unread.length === 0 && <p className="muted">You are all caught up.</p>}
-          <ul className="plain-list">
-            {unread.map((c) => (
-              <li key={c.id} className="list-row">
-                <Link to={`/inbox/${c.id}`}>{c.contact.name ?? formatPhone(c.contact.phone)}</Link>
-                <span className="unread-badge">{c.unreadCount}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="card">
-          <h2>Follow-ups today and overdue</h2>
-          {followUps.loading && <Skeleton rows={3} />}
-          {!followUps.loading && due.length === 0 && <p className="muted">Nothing due today.</p>}
-          <ul className="plain-list">
-            {due.map((f) => (
-              <li key={f.id} className="list-row">
-                <span>
-                  <Link to={`/leads/${f.leadId}`}>
-                    {f.contact.name ?? formatPhone(f.contact.phone)}
-                  </Link>
-                  <span className="muted small"> · {f.note}</span>
-                </span>
-                {followUpTab(f, now) === 'overdue' ? (
-                  <Chip tone="error">Overdue</Chip>
-                ) : (
-                  <Chip tone="info">{formatDateTime(f.dueAt)}</Chip>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="card">
-          <h2>My leads by stage</h2>
-          <div className="donut-stack">
-            <Donut
-              parts={stageParts}
-              total={stageParts.reduce((n, p) => n + p.value, 0)}
-              unit="lead"
-            />
-            <Legend parts={stageParts} />
-          </div>
-          <Link to="/leads">Open my leads</Link>
-        </section>
-      </div>
     </>
   );
 }

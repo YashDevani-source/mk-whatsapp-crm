@@ -1,6 +1,7 @@
-// Small hand-made charts for the dashboard (DEMO-35, Decision 36): HTML/CSS bars and SVG rings,
+// Small hand-made charts for Reports (DEMO-35, Decisions 36 and 40): HTML/CSS bars and SVG rings,
 // no chart library. Every chart has text labels or a legend, so nothing depends on colour alone,
 // and each mark has a hover title with its exact value.
+import type { LeadStage } from '@crm/shared';
 
 export interface Part {
   label: string;
@@ -185,3 +186,15 @@ export function StackedBar({ parts, max, label }: { parts: Part[]; max?: number;
     </div>
   );
 }
+
+// Stage colours: the validated categorical order (Decision 37); converted and lost land on green
+// and red. Used by the dashboard's Leads overview and the Reports charts.
+export const STAGE_COLOR: Readonly<Record<LeadStage, string>> = {
+  new: 'var(--series-1)',
+  contacted: 'var(--series-2)',
+  qualified: 'var(--series-3)',
+  site_visit: 'var(--series-4)',
+  negotiation: 'var(--series-5)',
+  converted: 'var(--series-6)',
+  lost: 'var(--series-7)',
+};

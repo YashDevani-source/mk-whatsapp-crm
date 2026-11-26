@@ -1,419 +1,479 @@
-// DEMO-30, DEMO-35: the Super Admin and Manager dashboard. Number cards, charts and two action
-// tiles, all drawn from the demo data (Decision 36). Reports stay tables (reports-page.tsx).
-import { LEAD_STAGE_LABELS, type LeadStage } from '@crm/shared';
-import type { ReactNode } from 'react';
+// DEMO-38, DEMO-39: the dashboard (Super Admin, Manager) and the Employee home, one layout after
+// the user's reference image: a centre column with a greeting, three pastel number cards, recent
+// conversations, a leads overview and recent lead activity; a right panel with the user's profile
+// and the follow-up agenda. Every value comes from the role-scoped lists (Decision 41).
+import { LEAD_STAGE_LABELS, type FollowUpView, type LeadView } from '@crm/shared';
+import { useState } from 'react';
 import { Link } from 'react-router';
-import { BarChart, Donut, Legend, Sparkline, StackedBar, type Part } from './charts.tsx';
-import { useDemo, useLive, useUser } from './context.tsx';
-import { countOf, formatPhone } from './format.ts';
-import { Icon } from './icons.tsx';
-import type { DayCount, MonthCount } from './reports.ts';
-import { followUpTab } from './rules.ts';
-import { Chip, ErrorNote, Skeleton, Tag } from './ui.tsx';
+import { STAGE_COLOR } from './charts.tsx';
+import { stageTone } from './chat-view.ts';
+import { useLive, useNow, useUser } from './context.tsx';
+import { countOf, formatAgo, formatClock, formatPhone } from './format.ts';
+import { Icon, type IconName } from './icons.tsx';
+import {
+  agendaFor,
+  daysWithFollowUps,
+  interestOf,
+  leadsOverview,
+  overviewCards,
+  recentConversations,
+  recentLeadActivity,
+  weekDays,
+  type AgendaStatus,
+} from './overview.ts';
+import { dayKey } from './reports.ts';
+import { Avatar, Chip, ErrorNote, ROLE_LABELS, Skeleton, Tag, type Tone } from './ui.tsx';
 
-// Stage colours: the validated dark categorical order (Decision 37); converted and lost
-// happen to land on green and red.
-export const STAGE_COLOR: Readonly<Record<LeadStage, string>> = {
-  new: 'var(--series-1)',
-  contacted: 'var(--series-2)',
-  qualified: 'var(--series-3)',
-  site_visit: 'var(--series-4)',
-  negotiation: 'var(--series-5)',
-  converted: 'var(--series-6)',
-  lost: 'var(--series-7)',
-};
+const nameOf = (c: { name: string | null; phone: string }): string =>
+  c.name ?? formatPhone(c.phone);
 
-const shortDay = (day: string): string => String(Number(day.slice(8)));
-
-const longDay = (day: string): string =>
-  new Date(`${day}T12:00:00`).toLocaleDateString('en-GB', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-
-// "+2 vs last month" as a chip; the change is a count, never a percentage (Decision 36).
-function Change({ month }: { month: MonthCount }) {
-  const diff = month.thisMonth - month.lastMonth;
-  const tone = diff > 0 ? 'ok' : diff < 0 ? 'error' : 'neutral';
-  const arrow = diff > 0 ? '↑' : diff < 0 ? '↓' : '=';
-  return (
-    <span
-      className={`chip chip-${tone}`}
-      title={`${month.thisMonth} this month, ${month.lastMonth} last month`}
-    >
-      <span aria-hidden="true">{arrow}</span> {diff > 0 ? `+${diff}` : diff}
-    </span>
-  );
-}
-
-function KpiCard({
+function MetricCard({
   label,
   value,
+  note,
   to,
-  highlight,
-  children,
+  icon,
+  tone,
 }: {
   label: string;
   value: number | undefined;
+  note: string;
   to: string;
-  highlight?: boolean;
-  children?: ReactNode;
+  icon: IconName;
+  tone: 'yellow' | 'blue' | 'lavender';
 }) {
   return (
-    <Link to={to} className={highlight ? 'kpi kpi-highlight' : 'kpi'}>
-      <span className="kpi-head">
-        <span>{label}</span>
-        <span className="round-arrow" aria-hidden="true">
-          <Icon name="arrow" size={16} />
-        </span>
+    <Link to={to} className={`metric-card pastel-${tone}`}>
+      <span className="metric-label">{label}</span>
+      <span className="metric-value">{value ?? '…'}</span>
+      <span className="metric-note">{value === undefined ? ' ' : note}</span>
+      <span className="metric-icon" aria-hidden="true">
+        <Icon name={icon} size={18} />
       </span>
-      <span className="kpi-value">{value ?? '…'}</span>
-      <span className="kpi-foot">{children}</span>
     </Link>
   );
 }
 
-function ChatsChart({ days }: { days: DayCount[] }) {
-  const total = days.reduce((n, d) => n + d.count, 0);
-  const busiest = days.reduce<DayCount | undefined>(
-    (best, d) => (best === undefined || d.count > best.count ? d : best),
-    undefined,
-  );
+function SectionHead({
+  title,
+  to,
+  action = 'View all',
+}: {
+  title: string;
+  to?: string;
+  action?: string;
+}) {
   return (
-    <section className="dash-card span-7">
-      <header className="dash-card-head">
-        <div>
-          <h2>New chats per day</h2>
-          <p className="muted small">Last 14 days · {total} in total</p>
-        </div>
-        <Link to="/inbox" className="round-arrow" aria-label="Open the inbox">
-          <Icon name="arrow" size={16} />
+    <div className="section-head">
+      <h2>{title}</h2>
+      {to && (
+        <Link to={to} className="pill-link">
+          {action}
         </Link>
-      </header>
-      <BarChart
-        label={`New chats per day for the last 14 days, ${total} in total${
-          busiest && busiest.count > 0 ? `, most on ${longDay(busiest.day)} (${busiest.count})` : ''
-        }`}
-        unit="chat"
-        bars={days.map((d) => ({
-          key: d.day,
-          label: shortDay(d.day),
-          title: longDay(d.day),
-          value: d.count,
-        }))}
-      />
-    </section>
-  );
-}
-
-export function DashboardPage() {
-  const { now } = useDemo();
-  const user = useUser();
-  const dash = useLive((a) => a.getDashboard(), 'dashboard');
-  const charts = useLive((a) => a.getDashboardCharts(), 'dashboard-charts');
-  const followUps = useLive((a) => a.listFollowUps(), 'followups');
-  const c = charts.data;
-  const today = now();
-  // The next follow-ups to act on: overdue first, then today's, oldest first.
-  const nextDue = (followUps.data ?? [])
-    .map((f) => ({ f, tab: followUpTab(f, today) }))
-    .filter((x) => x.tab === 'overdue' || x.tab === 'today')
-    .sort((a, b) => a.f.dueAt.localeCompare(b.f.dueAt))
-    .slice(0, 4);
-
-  const stageParts: Part[] = (c?.leadsByStage ?? []).map((s) => ({
-    label: LEAD_STAGE_LABELS[s.stage],
-    value: s.count,
-    color: STAGE_COLOR[s.stage],
-  }));
-  const leadTotal = stageParts.reduce((n, p) => n + p.value, 0);
-  const followUpParts: Part[] = c
-    ? [
-        { label: 'Overdue', value: c.followUps.overdue, color: 'var(--status-critical)' },
-        { label: 'Due today', value: c.followUps.today, color: 'var(--status-warning)' },
-        { label: 'Upcoming', value: c.followUps.upcoming, color: 'var(--series-1)' },
-        { label: 'Done', value: c.followUps.done, color: 'var(--status-good)' },
-      ]
-    : [];
-  const workloadMax = Math.max(1, ...(c?.workload ?? []).map((w) => w.open + w.pending));
-  const campaignMax = Math.max(
-    1,
-    ...(c?.campaigns ?? []).map((k) => k.sent + k.skipped + k.failed + k.pending),
-  );
-
-  return (
-    <div className="dashboard">
-      <header className="dash-hello">
-        <div>
-          <h1>Hello, {user.name.split(' ')[0]}</h1>
-          <p className="muted">
-            {dash.data
-              ? `${countOf(dash.data.unassignedChats, 'chat has', 'chats have')} no owner and ${countOf(dash.data.overdueFollowUps, 'follow-up is', 'follow-ups are')} overdue.`
-              : 'Loading today’s numbers…'}
-          </p>
-        </div>
-        <div className="dash-hello-side">
-          <Tag>Simulated data</Tag>
-          <span className="date-pill">
-            {today.toLocaleDateString('en-GB', {
-              weekday: 'short',
-              day: 'numeric',
-              month: 'short',
-            })}
-          </span>
-        </div>
-      </header>
-
-      {dash.error !== undefined && <ErrorNote error={dash.error} />}
-      {charts.error !== undefined && <ErrorNote error={charts.error} />}
-
-      <div className="dash-grid">
-        <div className="kpi-grid span-5">
-          <KpiCard label="Open chats" value={dash.data?.openChats} to="/inbox" highlight>
-            {c && (
-              <>
-                <Sparkline
-                  values={c.chatsPerDay.slice(-7).map((d) => d.count)}
-                  label={`New chats in the last 7 days: ${c.chatsPerDay
-                    .slice(-7)
-                    .map((d) => d.count)
-                    .join(', ')}`}
-                />
-                <span>Last 7 days</span>
-              </>
-            )}
-          </KpiCard>
-          <KpiCard label="Unassigned chats" value={dash.data?.unassignedChats} to="/inbox">
-            {c && <span>{c.waitingForReply} wait for a reply</span>}
-          </KpiCard>
-          <KpiCard label="New leads" value={dash.data?.newLeads} to="/leads">
-            {c && (
-              <>
-                <Change month={c.leadsCreated} />
-                <span>created vs last month</span>
-              </>
-            )}
-          </KpiCard>
-          <KpiCard label="Converted this month" value={dash.data?.convertedThisMonth} to="/leads">
-            {c && (
-              <>
-                <Change month={c.converted} />
-                <span>vs last month</span>
-              </>
-            )}
-          </KpiCard>
-        </div>
-
-        {c ? (
-          <ChatsChart days={c.chatsPerDay} />
-        ) : (
-          <section className="dash-card span-7">
-            <Skeleton rows={4} />
-          </section>
-        )}
-
-        <Link to="/inbox" className="action-tile tile-warn span-3">
-          <span className="tile-band">Unassigned</span>
-          <span className="tile-body">
-            <span className="tile-number">{dash.data?.unassignedChats ?? '…'}</span>
-            <span>
-              chats without an owner
-              {c && (
-                <>
-                  , <strong>{c.waitingForReply} waiting</strong> for a reply
-                </>
-              )}
-              .
-            </span>
-          </span>
-          <span className="tile-action">
-            Assign chats <Icon name="arrow" size={16} />
-          </span>
-        </Link>
-        <Link to="/follow-ups" className="action-tile tile-error span-3">
-          <span className="tile-band">Overdue</span>
-          <span className="tile-body">
-            <span className="tile-number">{dash.data?.overdueFollowUps ?? '…'}</span>
-            <span>
-              follow-ups past their time
-              {c && (
-                <>
-                  , <strong>{c.followUps.today} more</strong> due today
-                </>
-              )}
-              .
-            </span>
-          </span>
-          <span className="tile-action">
-            Open follow-ups <Icon name="arrow" size={16} />
-          </span>
-        </Link>
-
-        <section className="dash-card span-6">
-          <header className="dash-card-head">
-            <div>
-              <h2>Leads by stage</h2>
-              <p className="muted small">Every lead, open and closed</p>
-            </div>
-            <Link to="/leads" className="round-arrow" aria-label="Open leads">
-              <Icon name="arrow" size={16} />
-            </Link>
-          </header>
-          {c ? (
-            <div className="donut-row">
-              <Donut parts={stageParts} total={leadTotal} unit="lead" />
-              <Legend parts={stageParts} share />
-            </div>
-          ) : (
-            <Skeleton rows={3} />
-          )}
-        </section>
-
-        <section className="dash-card span-6">
-          <header className="dash-card-head">
-            <div>
-              <h2>Team workload</h2>
-              <p className="muted small">Chats each Employee owns now</p>
-            </div>
-            <Legend
-              parts={[
-                { label: 'Open', value: sum(c?.workload, 'open'), color: 'var(--series-1)' },
-                { label: 'Pending', value: sum(c?.workload, 'pending'), color: 'var(--series-2)' },
-              ]}
-            />
-          </header>
-          {c ? (
-            <ul className="bar-rows">
-              {c.workload.map((w) => (
-                <li key={w.employeeId}>
-                  <span className="bar-row-name">{w.employee}</span>
-                  <StackedBar
-                    label={w.employee}
-                    max={workloadMax}
-                    parts={[
-                      { label: 'Open', value: w.open, color: 'var(--series-1)' },
-                      { label: 'Pending', value: w.pending, color: 'var(--series-2)' },
-                    ]}
-                  />
-                  <span className="bar-row-value">
-                    {w.open} open · {w.pending} pending
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <Skeleton rows={4} />
-          )}
-        </section>
-
-        <section className="dash-card span-6">
-          <header className="dash-card-head">
-            <div>
-              <h2>Follow-ups</h2>
-              <p className="muted small">
-                {c ? `${followUpParts.reduce((n, p) => n + p.value, 0)} in total` : ' '}
-              </p>
-            </div>
-            <Link to="/follow-ups" className="round-arrow" aria-label="Open follow-ups">
-              <Icon name="arrow" size={16} />
-            </Link>
-          </header>
-          {c ? (
-            <>
-              <StackedBar label="Follow-ups" parts={followUpParts} />
-              <Legend parts={followUpParts} share />
-              {nextDue.length > 0 && (
-                <>
-                  <h3 className="muted small">Act on next</h3>
-                  <ul className="due-list">
-                    {nextDue.map(({ f, tab }) => (
-                      <li key={f.id}>
-                        <Chip tone={tab === 'overdue' ? 'error' : 'warn'}>
-                          {tab === 'overdue' ? 'Overdue' : 'Today'}
-                        </Chip>
-                        <Link to={`/leads/${f.leadId}`} className="due-text">
-                          {f.contact.name ?? formatPhone(f.contact.phone)}
-                        </Link>
-                        <span className="muted small">{f.owner.name}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </>
-          ) : (
-            <Skeleton rows={2} />
-          )}
-        </section>
-
-        <section className="dash-card span-12">
-          <header className="dash-card-head">
-            <div>
-              <h2>Campaign delivery</h2>
-              <p className="muted small">Test numbers only · simulated sends</p>
-            </div>
-            <Link to="/campaigns" className="round-arrow" aria-label="Open campaigns">
-              <Icon name="arrow" size={16} />
-            </Link>
-          </header>
-          {c === undefined ? (
-            <Skeleton rows={2} />
-          ) : c.campaigns.length === 0 ? (
-            <p className="muted">No campaigns yet.</p>
-          ) : (
-            <>
-              <ul className="bar-rows campaign-rows">
-                {c.campaigns.map((k) => (
-                  <li key={k.id}>
-                    <Link to={`/campaigns/${k.id}`} className="bar-row-name">
-                      {k.name}
-                    </Link>
-                    <StackedBar
-                      label={k.name}
-                      max={campaignMax}
-                      parts={[
-                        { label: 'Sent', value: k.sent, color: 'var(--status-good)' },
-                        { label: 'Pending', value: k.pending, color: 'var(--series-1)' },
-                        { label: 'Failed', value: k.failed, color: 'var(--status-critical)' },
-                        { label: 'Skipped', value: k.skipped, color: 'var(--status-idle)' },
-                      ]}
-                    />
-                    <span className="bar-row-value">
-                      {k.sent} sent · {k.failed} failed · {k.skipped} skipped
-                      {k.pending > 0 && ` · ${k.pending} pending`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <Legend
-                parts={[
-                  { label: 'Sent', value: sum(c.campaigns, 'sent'), color: 'var(--status-good)' },
-                  {
-                    label: 'Pending',
-                    value: sum(c.campaigns, 'pending'),
-                    color: 'var(--series-1)',
-                  },
-                  {
-                    label: 'Failed',
-                    value: sum(c.campaigns, 'failed'),
-                    color: 'var(--status-critical)',
-                  },
-                  {
-                    label: 'Skipped',
-                    value: sum(c.campaigns, 'skipped'),
-                    color: 'var(--status-idle)',
-                  },
-                ]}
-              />
-            </>
-          )}
-        </section>
-      </div>
+      )}
     </div>
   );
 }
 
-function sum<K extends string>(rows: Record<K, number>[] | undefined, key: K): number {
-  return (rows ?? []).reduce((n, r) => n + r[key], 0);
+const CHAT_STATUS: Readonly<Record<string, string>> = {
+  open: 'Open',
+  pending: 'Pending',
+  closed: 'Closed',
+};
+
+const AGENDA_TONE: Readonly<Record<AgendaStatus, Tone>> = {
+  overdue: 'error',
+  due: 'warn',
+  done: 'ok',
+};
+
+const AGENDA_LABEL: Readonly<Record<AgendaStatus, string>> = {
+  overdue: 'Overdue',
+  due: 'Due',
+  done: 'Done',
+};
+
+function Agenda({
+  followUps,
+  leads,
+  now,
+}: {
+  followUps: FollowUpView[];
+  leads: LeadView[];
+  now: Date;
+}) {
+  const today = dayKey(now);
+  const [day, setDay] = useState(today);
+  const days = weekDays(now);
+  const busy = daysWithFollowUps(followUps);
+  const items = agendaFor(followUps, day, now);
+  const leadById = new Map(leads.map((l) => [l.id, l]));
+  const dayName = (key: string): string =>
+    new Date(`${key}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2);
+  const longDay = (key: string): string =>
+    new Date(`${key}T12:00:00`).toLocaleDateString('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    });
+
+  return (
+    <>
+      <div className="week-strip" role="group" aria-label="Pick a day of this week">
+        {days.map((key) => (
+          <button
+            key={key}
+            type="button"
+            className={`week-day${key === day ? ' active' : ''}${key === today ? ' today' : ''}`}
+            aria-pressed={key === day}
+            aria-label={`${longDay(key)}${busy.has(key) ? ', has follow-ups' : ''}`}
+            onClick={() => setDay(key)}
+          >
+            <span>{dayName(key)}</span>
+            <strong>{Number(key.slice(8))}</strong>
+            <span className={busy.has(key) ? 'week-dot' : 'week-dot is-free'} aria-hidden="true" />
+          </button>
+        ))}
+      </div>
+      {items.length === 0 ? (
+        <p className="agenda-empty muted">
+          Nothing due {day === today ? 'today' : `on ${longDay(day)}`}.
+        </p>
+      ) : (
+        <ul className="agenda">
+          {items.map(({ followUp: f, status }) => {
+            const lead = leadById.get(f.leadId);
+            const interest = lead ? interestOf(lead.needs) : '';
+            return (
+              <li key={f.id} className={`agenda-card agenda-${status}`}>
+                <span className="agenda-icon" aria-hidden="true">
+                  <Icon name="users" size={16} />
+                </span>
+                <span className="agenda-text">
+                  <Link to={`/leads/${f.leadId}`} className="agenda-name">
+                    {nameOf(f.contact)}
+                  </Link>
+                  <span className="agenda-time">
+                    {status === 'overdue' && dayKey(new Date(f.dueAt)) !== day
+                      ? formatClock(f.dueAt, now)
+                      : new Date(f.dueAt).toLocaleTimeString('en-GB', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                    {' · '}
+                    <Chip tone={AGENDA_TONE[status]}>{AGENDA_LABEL[status]}</Chip>
+                  </span>
+                  <span className="agenda-context">
+                    {f.note}
+                    {interest && <> · {interest}</>}
+                  </span>
+                </span>
+                <span className="agenda-owner" title={`Owner: ${f.owner.name}`}>
+                  <Avatar name={f.owner.name} size="sm" />
+                  <span className="visually-hidden">Owner: {f.owner.name}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function ProfilePanel({
+  followUps,
+  leads,
+  now,
+}: {
+  followUps?: FollowUpView[];
+  leads?: LeadView[];
+  now: Date;
+}) {
+  const user = useUser();
+  const wa = useLive((a) => a.getWa(), 'wa');
+  const connected = wa.data?.state.state === 'connected';
+  return (
+    <aside className="overview-side" aria-label="Your profile and follow-up agenda">
+      <div className="profile">
+        <span className="profile-avatar" aria-hidden="true">
+          <Avatar name={user.name} />
+          <span className={connected ? 'presence on' : 'presence'} />
+        </span>
+        <strong className="profile-name">{user.name}</strong>
+        <span className="muted">{ROLE_LABELS[user.role]} · Skyline Realty</span>
+        {wa.data && (
+          <span className={`presence-pill ${connected ? 'ok' : 'warn'}`}>
+            <span className="presence-check" aria-hidden="true">
+              {connected ? '✓' : '!'}
+            </span>
+            {connected ? 'WhatsApp connected' : 'WhatsApp not connected'}
+            <Tag>Simulated</Tag>
+          </span>
+        )}
+      </div>
+      <div className="side-section">
+        <SectionHead title="Follow-up agenda" to="/follow-ups" />
+        {followUps && leads ? (
+          <Agenda followUps={followUps} leads={leads} now={now} />
+        ) : (
+          <Skeleton rows={3} />
+        )}
+      </div>
+      <Link to="/follow-ups" className="side-button">
+        All follow-ups
+      </Link>
+    </aside>
+  );
+}
+
+function Overview() {
+  const user = useUser();
+  const now = useNow(30_000);
+  const staff = user.role !== 'EMPLOYEE';
+  const chats = useLive((a) => a.listConversations(), 'conversations');
+  const leads = useLive((a) => a.listLeads(), 'leads');
+  const followUps = useLive((a) => a.listFollowUps(), 'followups');
+  const cards =
+    chats.data && leads.data && followUps.data
+      ? overviewCards(chats.data, leads.data, followUps.data, now)
+      : undefined;
+  const unread = (chats.data ?? []).filter((c) => c.unreadCount > 0).length;
+  const dueToday = (followUps.data ?? []).filter(
+    (f) => f.doneAt === null && new Date(f.dueAt).toDateString() === now.toDateString(),
+  ).length;
+  const recent = recentConversations(chats.data ?? []);
+  const overview = leadsOverview(leads.data ?? []);
+  const stageMax = Math.max(1, ...overview.byStage.map((s) => s.count));
+  const activity = recentLeadActivity(leads.data ?? []);
+  const shownOwners = overview.owners.slice(0, 4);
+  const error = chats.error ?? leads.error ?? followUps.error;
+
+  return (
+    <div className="overview">
+      <div className="overview-main">
+        <header className="overview-hello">
+          <div>
+            <h1>Welcome back, {user.name.split(' ')[0]}!</h1>
+            <p className="muted">
+              {!cards
+                ? 'Loading today’s enquiries, leads and follow-ups…'
+                : staff
+                  ? `${countOf(cards.unassignedChats, 'chat needs', 'chats need')} an owner and ${countOf(cards.overdueFollowUps, 'follow-up is', 'follow-ups are')} overdue.`
+                  : `${countOf(unread, 'chat waits', 'chats wait')} for you and ${countOf(cards.overdueFollowUps + dueToday, 'follow-up is', 'follow-ups are')} due today or overdue.`}
+            </p>
+          </div>
+          <div className="overview-tools">
+            <Tag>Simulated data</Tag>
+            <span className="date-pill">
+              {now.toLocaleDateString('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+              })}
+            </span>
+          </div>
+        </header>
+
+        {error !== undefined && <ErrorNote error={error} />}
+
+        <div className="metric-row">
+          <MetricCard
+            label="New leads"
+            value={cards?.newLeads}
+            note={`of ${countOf(cards?.totalLeads ?? 0, 'lead')}${staff ? ' in total' : ' you own'}`}
+            to="/leads"
+            icon="leads"
+            tone="yellow"
+          />
+          <MetricCard
+            label="Open chats"
+            value={cards?.openChats}
+            note={
+              staff
+                ? `${cards?.unassignedChats ?? 0} without an owner`
+                : `${unread} with unread messages`
+            }
+            to="/inbox"
+            icon="inbox"
+            tone="blue"
+          />
+          <MetricCard
+            label="Pending follow-ups"
+            value={cards?.pendingFollowUps}
+            note={`${cards?.overdueFollowUps ?? 0} overdue · ${dueToday} due today`}
+            to="/follow-ups"
+            icon="followUps"
+            tone="lavender"
+          />
+        </div>
+
+        <div className="overview-pair">
+          <section className="ov-section" aria-labelledby="recent-chats">
+            <div className="section-head">
+              <h2 id="recent-chats">Recent conversations</h2>
+              <Link to="/inbox" className="pill-link">
+                View all
+              </Link>
+            </div>
+            {chats.loading ? (
+              <Skeleton rows={3} />
+            ) : recent.length === 0 ? (
+              <p className="card muted">No conversations yet.</p>
+            ) : (
+              <ul className="convo-list">
+                {recent.map((c) => (
+                  <li key={c.id}>
+                    <Link to={`/inbox/${c.id}`} className="convo-row">
+                      <Avatar name={c.contact.name ?? '#'} />
+                      <span className="convo-text">
+                        <span className="convo-top">
+                          <strong>{nameOf(c.contact)}</strong>
+                          {c.lastMessageAt && (
+                            <time dateTime={c.lastMessageAt}>
+                              {formatClock(c.lastMessageAt, now)}
+                            </time>
+                          )}
+                        </span>
+                        <span className="convo-bottom">
+                          <span className={c.unreadCount > 0 ? 'preview unread' : 'preview'}>
+                            {c.lastMessage?.body ?? 'No messages yet'}
+                          </span>
+                          {c.unreadCount > 0 ? (
+                            <span className="unread-badge" aria-label={`${c.unreadCount} unread`}>
+                              {c.unreadCount}
+                            </span>
+                          ) : (
+                            <span className={`convo-status status-${c.status}`}>
+                              {CHAT_STATUS[c.status]}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="ov-section" aria-labelledby="leads-overview">
+            <div className="section-head">
+              <h2 id="leads-overview">{staff ? 'Leads overview' : 'My leads'}</h2>
+            </div>
+            <div className="card leads-card">
+              <div className="leads-card-top">
+                <span className="big-number">{leads.data ? overview.total : '…'}</span>
+                <Link to="/leads" className="pill-link">
+                  View all
+                </Link>
+              </div>
+              <p className="leads-card-line">
+                <span className="count-bubble">{overview.open}</span> open ·{' '}
+                {overview.total - overview.open} converted or lost
+              </p>
+              <ul className="stage-bars" aria-label="Leads per stage">
+                {overview.byStage.map((s) => (
+                  <li key={s.stage}>
+                    <span className="stage-name">{LEAD_STAGE_LABELS[s.stage]}</span>
+                    <span className="stage-track" aria-hidden="true">
+                      <span
+                        className="stage-fill"
+                        style={{
+                          width: `${(s.count / stageMax) * 100}%`,
+                          background: STAGE_COLOR[s.stage],
+                        }}
+                      />
+                    </span>
+                    <span className="stage-count">{s.count}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="owner-row">
+                <span className="avatar-stack" aria-hidden="true">
+                  {shownOwners.map((o) => (
+                    <Avatar key={o.id} name={o.name} />
+                  ))}
+                  {overview.owners.length > shownOwners.length && (
+                    <span className="avatar avatar-md more">
+                      +{overview.owners.length - shownOwners.length}
+                    </span>
+                  )}
+                </span>
+                <span className="muted small">
+                  {overview.owners.length === 0
+                    ? 'No owners yet'
+                    : staff
+                      ? `${countOf(overview.owners.length, 'owner')}${overview.unowned > 0 ? ` · ${overview.unowned} unassigned` : ''}`
+                      : 'All yours'}
+                </span>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section className="ov-section" aria-labelledby="lead-activity">
+          <SectionHead title="Recent lead activity" to="/leads" />
+          {leads.loading ? (
+            <Skeleton rows={4} />
+          ) : activity.length === 0 ? (
+            <p className="card muted">No leads yet.</p>
+          ) : (
+            <div className="table-wrap activity-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Contact</th>
+                    <th>Property interest</th>
+                    <th>Assigned to</th>
+                    <th>Last activity</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activity.map((l) => {
+                    const interest = interestOf(l.needs);
+                    return (
+                      <tr key={l.id}>
+                        <td>
+                          <Link to={`/leads/${l.id}`} className="who">
+                            <Avatar name={l.contact.name ?? '#'} size="sm" />
+                            <strong>{nameOf(l.contact)}</strong>
+                          </Link>
+                        </td>
+                        <td className="nowrap muted">{formatPhone(l.contact.phone)}</td>
+                        <td className="interest" title={interest || undefined}>
+                          {interest || <span className="muted">Not known</span>}
+                        </td>
+                        <td>{l.owner?.name ?? <span className="muted">Unassigned</span>}</td>
+                        <td className="nowrap muted">{formatAgo(l.updatedAt, now)}</td>
+                        <td>
+                          <Chip tone={stageTone(l.stage)}>
+                            <span className="dot" style={{ background: STAGE_COLOR[l.stage] }} />
+                            {LEAD_STAGE_LABELS[l.stage]}
+                          </Chip>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <ProfilePanel followUps={followUps.data} leads={leads.data} now={now} />
+    </div>
+  );
+}
+
+export function DashboardPage() {
+  return <Overview />;
+}
+
+// DEMO-32, DEMO-39: the Employee home is the same layout on their own work.
+export function HomePage() {
+  return <Overview />;
 }

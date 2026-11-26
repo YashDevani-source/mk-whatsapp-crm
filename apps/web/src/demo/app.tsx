@@ -1,5 +1,5 @@
 // The demo app: router, login gate, shell (sidebar, top bar, WhatsApp banner) and the page guard
-// (DEMO-02, DEMO-08, DEMO-09). The demo api enforces every rule; the guard only mirrors it.
+// (DEMO-02, DEMO-08, DEMO-09); the light shell with the user card and theme switch is DEMO-37. The demo api enforces every rule; the guard only mirrors it.
 import type { SessionUser } from '@crm/shared';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
@@ -17,7 +17,7 @@ import { canOpen, landingPath, navFor, pageForPath, PAGES, type PageKey } from '
 import { UserProvider, useDemo, useLive, useUser } from './context.tsx';
 import { CampaignsPage } from './campaigns-page.tsx';
 import { DemoControls } from './controls.tsx';
-import { DashboardPage } from './dashboard-page.tsx';
+import { DashboardPage, HomePage } from './dashboard-page.tsx';
 import { formatPhone } from './format.ts';
 import { FollowUpsPage } from './followups-page.tsx';
 import { Icon, WhatsAppLogo } from './icons.tsx';
@@ -25,10 +25,18 @@ import { InboxPage } from './inbox-page.tsx';
 import { LeadsPage } from './leads-page.tsx';
 import { LoginPage } from './login.tsx';
 import { PropertiesPage } from './properties-page.tsx';
-import { AuditPage, HomePage, ReportsPage } from './reports-page.tsx';
+import { AuditPage, ReportsPage } from './reports-page.tsx';
 import { DEMO_COMPANY } from './seed.ts';
+import {
+  applyTheme,
+  browserStorage,
+  otherTheme,
+  readTheme,
+  saveTheme,
+  type Theme,
+} from './theme.ts';
 import { ToastHost } from './toasts.tsx';
-import { Avatar, Empty, NoAccess, RoleBadge, Skeleton, Tag } from './ui.tsx';
+import { Avatar, Empty, NoAccess, RoleBadge, ROLE_LABELS, Skeleton, Tag } from './ui.tsx';
 import { UsersPage } from './users-page.tsx';
 import { WhatsAppPage } from './whatsapp-page.tsx';
 
@@ -110,12 +118,25 @@ function Guard({ page, children }: { page: PageKey; children: ReactNode }) {
   return canOpen(user.role, page) ? children : <NoAccess />;
 }
 
+// DEMO-36: switches every screen at once and remembers the choice in this browser.
+function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() => readTheme(browserStorage()));
+  const toggle = (): void => {
+    const next = otherTheme(theme);
+    applyTheme(next);
+    saveTheme(browserStorage(), next);
+    setTheme(next);
+  };
+  return [theme, toggle];
+}
+
 function Shell({ onLogout }: { onLogout: () => void }) {
   const { api } = useDemo();
   const user = useUser();
   const navigate = useNavigate();
   const location = useLocation();
   const [controlsOpen, setControlsOpen] = useState(false);
+  const [theme, toggleTheme] = useTheme();
   const chats = useLive((a) => a.listConversations(), 'conversations');
   const unread = (chats.data ?? []).filter((c) => c.unreadCount > 0).length;
   const flush = pageForPath(location.pathname) === 'inbox';
@@ -131,6 +152,8 @@ function Shell({ onLogout }: { onLogout: () => void }) {
     void navigate('/login');
   }
 
+  const themeLabel = theme === 'dark' ? 'Light theme' : 'Dark theme';
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -140,7 +163,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           </span>
           <span className="nav-label">
             <strong>{DEMO_COMPANY}</strong>
-            <span className="brand-sub">CRM</span>
+            <span className="brand-sub">WhatsApp CRM</span>
           </span>
         </div>
         <nav aria-label="Main">
@@ -172,21 +195,61 @@ function Shell({ onLogout }: { onLogout: () => void }) {
             <span className="nav-label">Demo controls</span>
           </button>
           <span className="muted small sidebar-hint">Simulate customers, agents and drops.</span>
+          <button
+            type="button"
+            className="nav-item theme-switch"
+            onClick={toggleTheme}
+            aria-pressed={theme === 'dark'}
+            data-label={themeLabel}
+          >
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
+            <span className="nav-label">{themeLabel}</span>
+          </button>
+          <div className="user-card">
+            <Avatar name={user.name} />
+            <span className="nav-label user-card-who">
+              <strong>{user.name}</strong>
+              <span className="muted small">{ROLE_LABELS[user.role]}</span>
+            </span>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => void logout()}
+              aria-label="Log out"
+              data-label="Log out"
+            >
+              <Icon name="logout" size={18} />
+            </button>
+          </div>
         </div>
       </aside>
       <div className="main-col">
         <header className="topbar">
           <Tag>Demo · simulated</Tag>
+          <WaBanner />
+          {/* On a phone the sidebar is a bottom bar: the user, theme and Log out live here. */}
           <div className="topbar-user">
             <Avatar name={user.name} size="sm" />
-            <span>{user.name}</span>
             <RoleBadge role={user.role} />
-            <button type="button" className="btn btn-small" onClick={() => void logout()}>
-              Log out
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={toggleTheme}
+              aria-pressed={theme === 'dark'}
+              aria-label={themeLabel}
+            >
+              <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => void logout()}
+              aria-label="Log out"
+            >
+              <Icon name="logout" size={18} />
             </button>
           </div>
         </header>
-        <WaBanner />
         <ToastHost>
           <main className={flush ? 'content flush' : 'content'}>
             {/* One short entrance per page, never on a data refresh (DEMO-36). */}

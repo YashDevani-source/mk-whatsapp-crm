@@ -38,10 +38,19 @@ import {
   monthChange,
   toCsv,
 } from './reports.ts';
+import {
+  agendaFor,
+  leadsOverview,
+  overviewCards,
+  recentConversations,
+  recentLeadActivity,
+  weekDays,
+} from './overview.ts';
 import { followUpTab, needsSummary, propertyCard, uploadProblem } from './rules.ts';
 import { buildSeed, DEMO_PASSWORD, isTestNumber } from './seed.ts';
 import { runDue } from './sim.ts';
 import { DemoData, DemoStore, memoryStorage, STORAGE_KEY, type KeyValueStorage } from './store.ts';
+import { otherTheme, readTheme, saveTheme, THEME_KEY } from './theme.ts';
 
 const NOW = new Date('2026-11-26T10:00:00.000Z');
 
@@ -1314,6 +1323,163 @@ describe('demo dashboard charts and theme (phase 6)', () => {
     expect(await rejection(api.getDashboardCharts())).toBe('forbidden');
   });
 
-  it.todo('DEMO-35 dashboard charts in the browser: labels, legends, hover values (manual)');
-  it.todo('DEMO-36 dark theme on every screen, readable and with visible focus (manual)');
+  it.todo('DEMO-35 Reports charts in the browser: labels, legends, hover values (manual)');
+  it.todo(
+    'DEMO-36 light and dark themes on every screen, readable and with visible focus (manual)',
+  );
+});
+
+describe('demo redesign after the reference image (phase 7)', () => {
+  it('DEMO-36 the theme is light by default, remembered per browser, and survives blocked storage', () => {
+    const storage = memoryStorage();
+    expect(readTheme(storage)).toBe('light');
+    saveTheme(storage, 'dark');
+    expect(storage.getItem(THEME_KEY)).toBe('dark');
+    expect(readTheme(storage)).toBe('dark');
+    expect(otherTheme('dark')).toBe('light');
+    expect(otherTheme('light')).toBe('dark');
+    // A stored value that is not a theme is ignored.
+    storage.setItem(THEME_KEY, 'purple');
+    expect(readTheme(storage)).toBe('light');
+    // Blocked storage (private mode, blocked site data) throws: the page still works.
+    const blocked: KeyValueStorage = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+      removeItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(readTheme(blocked)).toBe('light');
+    expect(() => saveTheme(blocked, 'dark')).not.toThrow();
+    expect(readTheme(undefined)).toBe('light');
+  });
+
+  it('DEMO-38 the dashboard cards and lists come from the chats, leads and follow-ups', async () => {
+    const { api } = harness();
+    await login(api, 'neha');
+    const chats = await api.listConversations();
+    const leads = await api.listLeads();
+    const followUps = await api.listFollowUps();
+
+    // The cards agree with the Reports numbers (DEMO-30) for a Manager, who sees everything.
+    const cards = overviewCards(chats, leads, followUps, NOW);
+    const numbers = await api.getDashboard();
+    expect(cards.newLeads).toBe(numbers.newLeads);
+    expect(cards.openChats).toBe(numbers.openChats);
+    expect(cards.unassignedChats).toBe(numbers.unassignedChats);
+    expect(cards.overdueFollowUps).toBe(numbers.overdueFollowUps);
+    expect(cards.totalLeads).toBe(leads.length);
+    expect(cards.pendingFollowUps).toBe(followUps.filter((f) => f.doneAt === null).length);
+
+    // Recent conversations: the five with the latest message, newest first.
+    const recent = recentConversations(chats);
+    expect(recent).toHaveLength(5);
+    const times = recent.map((c) => c.lastMessageAt ?? '');
+    expect(times).toEqual([...times].sort().reverse());
+    const newest = [...chats].sort((a, b) =>
+      (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''),
+    )[0];
+    expect(recent[0]?.id).toBe(newest?.id);
+
+    // Leads overview: every stage in order, counts add up, owners ranked by lead count.
+    const overview = leadsOverview(leads);
+    expect(overview.total).toBe(leads.length);
+    expect(overview.byStage.map((s) => s.stage)).toEqual(LeadStage.options);
+    expect(overview.byStage.reduce((n, s) => n + s.count, 0)).toBe(leads.length);
+    expect(overview.open).toBe(
+      leads.filter((l) => l.stage !== 'converted' && l.stage !== 'lost').length,
+    );
+    expect(overview.owners.reduce((n, o) => n + o.count, 0) + overview.unowned).toBe(leads.length);
+    const counts = overview.owners.map((o) => o.count);
+    expect(counts).toEqual([...counts].sort((a, b) => b - a));
+
+    // Recent lead activity: the six most recently updated leads.
+    const activity = recentLeadActivity(leads);
+    expect(activity).toHaveLength(6);
+    const updated = activity.map((l) => l.updatedAt);
+    expect(updated).toEqual([...updated].sort().reverse());
+  });
+
+  it('DEMO-38 the agenda shows the chosen day, with overdue follow-ups first on today', async () => {
+    const days = weekDays(NOW);
+    expect(days).toHaveLength(7);
+    // Monday to Sunday of this week; today is one of them.
+    expect(new Date(`${days[0]}T12:00:00`).getDay()).toBe(1);
+    expect(new Date(`${days[6]}T12:00:00`).getDay()).toBe(0);
+    expect(days).toContain(dayKey(NOW));
+
+    const { api } = harness();
+    await login(api, 'neha');
+    const followUps = await api.listFollowUps();
+    const today = agendaFor(followUps, dayKey(NOW), NOW);
+    const overdue = followUps.filter((f) => followUpTab(f, NOW) === 'overdue');
+    expect(overdue.length).toBeGreaterThan(0);
+    // Every overdue follow-up is listed today, before the rest, and flagged.
+    expect(today.slice(0, overdue.length).every((a) => a.status === 'overdue')).toBe(true);
+    expect(today.filter((a) => a.status === 'overdue')).toHaveLength(overdue.length);
+    // The rest are those due today, in time order; no follow-up twice.
+    const rest = today.slice(overdue.length);
+    expect(
+      rest.every((a) => new Date(a.followUp.dueAt).toDateString() === NOW.toDateString()),
+    ).toBe(true);
+    expect(new Set(today.map((a) => a.followUp.id)).size).toBe(today.length);
+    const restTimes = rest.map((a) => a.followUp.dueAt);
+    expect(restTimes).toEqual([...restTimes].sort());
+
+    // Another day: only that day's follow-ups, never the overdue ones.
+    const later = followUps.find(
+      (f) =>
+        f.doneAt === null &&
+        new Date(f.dueAt).toDateString() !== NOW.toDateString() &&
+        f.dueAt > NOW.toISOString(),
+    );
+    if (!later) throw new Error('seed has no upcoming follow-up');
+    const day = dayKey(new Date(later.dueAt));
+    const list = agendaFor(followUps, day, NOW);
+    expect(list.map((a) => a.followUp.id)).toContain(later.id);
+    expect(list.every((a) => dayKey(new Date(a.followUp.dueAt)) === day)).toBe(true);
+    expect(list.every((a) => a.status === 'due' || a.status === 'done')).toBe(true);
+  });
+
+  it("DEMO-39 the Employee home counts only the Employee's own chats, leads and follow-ups", async () => {
+    const { api, store } = harness();
+    await login(api, 'priya');
+    const me = (await api.me())?.id;
+    const chats = await api.listConversations();
+    const leads = await api.listLeads();
+    const followUps = await api.listFollowUps();
+    expect(chats.length).toBeGreaterThan(0);
+    expect(chats.every((c) => c.assignee?.id === me)).toBe(true);
+    expect(leads.every((l) => l.owner?.id === me)).toBe(true);
+    expect(followUps.every((f) => f.owner.id === me)).toBe(true);
+
+    const cards = overviewCards(chats, leads, followUps, NOW);
+    const data = store.data;
+    expect(cards.openChats).toBe(
+      data.conversations.filter((c) => c.assigneeId === me && c.status === 'open').length,
+    );
+    expect(cards.totalLeads).toBe(data.leads.filter((l) => l.ownerId === me).length);
+    expect(cards.pendingFollowUps).toBe(
+      data.followUps.filter((f) => f.ownerId === me && f.doneAt === null).length,
+    );
+    expect(leadsOverview(leads).owners.map((o) => o.id)).toEqual([me]);
+    // The Reports numbers stay closed to Employees.
+    expect(await rejection(api.getDashboard())).toBe('forbidden');
+  });
+
+  it.todo(
+    'DEMO-37 the light sidebar, user card, theme switch and top bar at 1440, 1024 and 390 px (manual)',
+  );
+  it.todo(
+    'DEMO-38 the three-column dashboard matches the reference layout in the browser (manual)',
+  );
+  it.todo('DEMO-39 the Employee home in the browser (manual)');
+  it.todo(
+    'DEMO-40 every other screen in the new design language, no sideways scroll at 390 px (manual)',
+  );
+  it.todo('DEMO-41 live mode screens in the light palette, behaviour unchanged (manual)');
 });
