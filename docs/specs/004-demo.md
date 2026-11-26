@@ -1,6 +1,6 @@
 Status: approved
 
-Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: phases 1 to 4 built (DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20, DEMO-22 to DEMO-31 have passing tests; DEMO-02, DEMO-14, DEMO-21, DEMO-32 are manual); phase 5 (polish, static build, walk-through) open.
+Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: all 5 phases built. DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20 and DEMO-22 to DEMO-31 have passing tests. The manual DEMO-02, DEMO-14, DEMO-21, DEMO-32 and DEMO-34 were checked in headless Chrome (see Manual check results). DEMO-33, the walk-through in a real browser, waits for the user.
 
 Drafted 2026-11-26 (session 9) after the user changed the flow: "complete this project with dummy data and dummy api responses with dummy logins and dummy qrs for prototype". The user chose (Decision 1): a mock mode inside the web app, a light spec with smoke tests, react-router with plain CSS, and live activity by buttons plus a gentle auto mode.
 
@@ -143,6 +143,17 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 9. A: Users: deactivate Karan; his chats become unassigned, his messages keep his name. Reports: filter and export CSV. Audit log shows every step above.
 10. As Employee, open `/users` by URL: no-access page. `build:demo` and `preview:demo`: deep link to `/leads` works.
 
+## Manual check results (2026-11-26, headless Chrome against `build:demo`)
+
+| ID | Result |
+| --- | --- |
+| DEMO-02 | Pass. A sweep of every page for Super Admin, Manager and Employee at 1280 × 800: the top bar has "Demo · simulated" and the banner "Simulated" on every page, including no-access and not-found. |
+| DEMO-14 | Pass. Three columns; Open/Pending/Closed with counts; Unassigned/Mine/All for staff, none for Employees; rows with name or phone, preview, time, unread badge, assignee and stage chip. |
+| DEMO-21 | Pass. "Sent from phone" (Siddharth Rao), "Unsupported message (image)" (+1 202 555 0113), day separators and the "New messages" divider seen in screenshots. |
+| DEMO-32 | Pass. Priya's home: her unread chats, today's and overdue follow-ups, her leads by stage. |
+| DEMO-34 | Pass. `build:demo` writes `404.html` and `_redirects`. Deep links (`/leads/<id>`, `/campaigns/opt-outs`, `/properties/<id>`) open on `preview:demo` and on a plain static server that serves files and `404.html` only (GitHub Pages behaviour). |
+| DEMO-33 | Waiting for the user. A scripted run of the README walk-through in two tabs (Neha, Priya) passed steps 1 to 4 and 6; steps 5 and 7 were checked in phase 4. |
+
 ## Proposed changes
 
 - **CLAUDE.md "Hard rules" and "Priorities"** (on approval): add "Demo mode (`VITE_DEMO=1`) is a labelled simulation for the prototype: its ticks, QR and messages are simulated and the UI says so. Live mode keeps the real rules (never fake ticks; QR, live inbox and replies must really work)."
@@ -184,6 +195,9 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 30. Phase 4: CSV rules (`campaigns.ts`): a `phone` column is required, `name` and other columns optional (other columns feed the Segment step), at most 1,000 rows, quoted fields and CRLF handled, a BOM ignored. Phones are normalised (spaces, brackets, dashes; `00` → `+`) and must be E.164. Skip reasons in order: invalid number, duplicate, not a test number (while "Test numbers only" is on, the default), opted out. A sample file ("Use the sample file") has one row of each problem for the walk-through.
 31. Phase 4: users. New users log in with the demo password. A Manager cannot create, promote to, change or deactivate a Super Admin; nobody changes their own role or deactivates themself; the last active Super Admin cannot be deactivated. Deactivation unassigns the user's open chats and open leads (with lead history rows), drops their locks, and ends their session: every tab re-checks the session on each store change and goes to the login page (checked with two tabs).
 32. Phase 4: reports. The dashboard counts open chats, unassigned open or pending chats, New leads, overdue follow-ups and leads converted this calendar month. The per-employee report lists Employees (deactivated ones only with activity in the range); the date range applies to replies sent, follow-ups done and the stage counts (by the lead's last update); chats assigned and open leads are current. The CSV holds exactly the rows shown. The audit log is read-only: the demo api has `listAudit` and nothing else for audit.
+33. Phase 5: `build:demo` runs `scripts/static-fallback.mjs` after the build, copying `index.html` to `404.html` and writing `_redirects`, so deep links work on GitHub Pages (root domain) and Netlify. The build uses absolute `/assets/` paths; a sub-path host needs `--base`. Publishing is not part of this spec.
+34. Phase 5: polish from a sweep of every page per role at 1280 px and a scripted run of the README walk-through: inputs and long file names no longer widen the lead and property detail columns; the tab title and icon are set for demo mode (the live `index.html` is unchanged); "Reset demo data" is also on the login page; the Demo controls drawer closes after "Send as customer" so the new chat is visible.
+35. Phase 5: a new bus event `conversation.assigned` gives the new assignee a "<name> assigned you a chat" toast (assignment from the inbox, or from a lead's owner). An event from another tab now syncs the store before it is delivered (`DemoBus.onRemote`), so the list updates together with the toast instead of up to a second later.
 
 ## Build phases
 

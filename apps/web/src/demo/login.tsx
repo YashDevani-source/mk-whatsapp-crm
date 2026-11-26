@@ -3,7 +3,7 @@ import type { SessionUser } from '@crm/shared';
 import { useState, type FormEvent } from 'react';
 import { useDemo } from './context.tsx';
 import { DEMO_COMPANY, DEMO_PASSWORD } from './seed.ts';
-import { Avatar, errorText, RoleBadge, Tag } from './ui.tsx';
+import { Avatar, errorText, Modal, RoleBadge, Tag } from './ui.tsx';
 
 export function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void }) {
   const { api } = useDemo();
@@ -11,6 +11,8 @@ export function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void })
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
 
   async function attempt(e: string, p: string): Promise<void> {
     setBusy(true);
@@ -109,7 +111,40 @@ export function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void })
             </li>
           ))}
         </ul>
+        <p className="muted small">
+          Data is kept in this browser.{' '}
+          <button type="button" className="btn-link" onClick={() => setConfirmReset(true)}>
+            Reset demo data
+          </button>
+          {resetDone && ' · Done: the original data is back.'}
+        </p>
       </section>
+      {confirmReset && (
+        <Modal
+          title="Reset demo data?"
+          onClose={() => setConfirmReset(false)}
+          actions={
+            <>
+              <button type="button" className="btn" onClick={() => setConfirmReset(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => {
+                  api.resetData();
+                  setConfirmReset(false);
+                  setResetDone(true);
+                }}
+              >
+                Reset
+              </button>
+            </>
+          }
+        >
+          <p>Every change made in this browser is lost and the Skyline Realty data comes back.</p>
+        </Modal>
+      )}
     </div>
   );
 }

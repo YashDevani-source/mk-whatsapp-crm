@@ -20,7 +20,19 @@ const session: SessionSlot = {
     id === null ? sessionStorage.removeItem(SESSION_KEY) : sessionStorage.setItem(SESSION_KEY, id),
 };
 
+// The tab title and icon for demo mode, set here so the live app's index.html stays as it is.
+function brandTab(): void {
+  document.title = 'Skyline Realty CRM · Demo';
+  const icon = document.createElement('link');
+  icon.rel = 'icon';
+  icon.href = `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#3b5bdb"/><text x="16" y="21" font-family="system-ui,sans-serif" font-size="13" font-weight="700" fill="white" text-anchor="middle">SR</text></svg>',
+  )}`;
+  document.head.append(icon);
+}
+
 export function mountDemo(root: HTMLElement): void {
+  brandTab();
   const now = (): Date => new Date();
   const store = new DemoStore(localStorage, () => buildSeed(now()));
   const bus = new DemoBus('crm-demo');
@@ -36,6 +48,7 @@ export function mountDemo(root: HTMLElement): void {
     if (event.key === STORAGE_KEY) store.sync();
   });
   setInterval(() => store.sync(), 1000);
+  bus.onRemote(() => store.sync());
 
   createRoot(root).render(
     <StrictMode>

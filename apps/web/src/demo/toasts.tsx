@@ -2,7 +2,7 @@
 // errors. Live events come from the demo bus, also from other tabs.
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
-import { useDemo } from './context.tsx';
+import { useDemo, useUser } from './context.tsx';
 import { formatPhone } from './format.ts';
 
 export interface Toast {
@@ -25,6 +25,7 @@ let nextId = 1;
 
 export function ToastHost({ children }: { children: ReactNode }) {
   const { api, bus } = useDemo();
+  const user = useUser();
   const location = useLocation();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -61,11 +62,21 @@ export function ToastHost({ children }: { children: ReactNode }) {
       }
       if (state.state === 'connected') push({ tone: 'ok', title: 'WhatsApp connected' });
     });
+    const offAssigned = bus.on('conversation.assigned', (event) => {
+      if (event.assigneeId !== user.id || event.by.id === user.id) return;
+      push({
+        tone: 'info',
+        title: `${event.by.name} assigned you a chat`,
+        body: event.contact,
+        to: `/inbox/${event.conversationId}`,
+      });
+    });
     return () => {
       offMessage();
       offState();
+      offAssigned();
     };
-  }, [api, bus, path, push]);
+  }, [api, bus, path, push, user.id]);
 
   return (
     <ToastContext.Provider value={push}>

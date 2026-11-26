@@ -102,7 +102,11 @@ export function DemoControls({ onClose }: { onClose: () => void }) {
               void run(() =>
                 api
                   .simulateInbound(phone === NEW_CONTACT ? { text } : { phone, text })
-                  .then((id) => navigate(`/inbox/${id}`)),
+                  .then((id) => {
+                    // Show the chat it opened.
+                    void navigate(`/inbox/${id}`);
+                    onClose();
+                  }),
               )
             }
           >

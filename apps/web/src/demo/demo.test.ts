@@ -58,6 +58,7 @@ function harness(storage: KeyValueStorage = memoryStorage()): Harness {
     'message.status',
     'conversation.updated',
     'lock.changed',
+    'conversation.assigned',
   ] as const) {
     record(e);
   }
@@ -521,6 +522,12 @@ describe('demo inbox', () => {
     const priya = store.data.users.find((u) => u.name === 'Priya Nair');
     await api.assignConversation(id, priya?.id ?? null);
     expect((await api.getConversation(id)).assignee?.name).toBe('Priya Nair');
+    expect(events.find((e) => e.event === 'conversation.assigned')?.payload).toMatchObject({
+      conversationId: id,
+      contact: 'Rahul Sharma',
+      assigneeId: priya?.id,
+      by: { name: 'Neha Kapoor' },
+    });
     expect(store.data.audit.at(-1)).toMatchObject({
       action: 'conversation.assigned',
       detail: 'Unassigned → Priya Nair',

@@ -1343,6 +1343,18 @@ tr.clickable {
   gap: 0.75rem;
 }
 
+/* Inputs fill their grid cell instead of setting its width. */
+.row-fields input,
+.row-fields select,
+.detail-side input[type='file'] {
+  width: 100%;
+  min-width: 0;
+}
+
+.plain-list li {
+  overflow-wrap: anywhere;
+}
+
 .static-field {
   padding: 0.5rem 0;
   font-weight: 400;

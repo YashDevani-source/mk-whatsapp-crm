@@ -2,22 +2,63 @@
 
 A web CRM where one real-estate sales team handles every customer enquiry through the company's single WhatsApp number, from a shared inbox. It is a prototype for MK Agency's developer assessment, built with a test WhatsApp number and test contacts only. Anything simulated is labelled in the UI.
 
-**Current state (2026-11-26):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms), Spec 2 (WA: the WhatsApp connection) and Spec 3 (MSG: receiving and sending text messages) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, a Messages page for the Super Admin and Managers, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Customer messages appear live; replies go through a queue and show only the ticks WhatsApp reports. The real test phone check for WA (WA-27) passed; the one for MSG (MSG-28) is open. Spec 4 (DEMO) adds a browser-only demo mode on dummy data (below); phases 1 to 4 of 5 are built.
+**Current state (2026-11-26):** Spec 0 (the project skeleton and spec tooling), Spec 1 (FND: env validation, `GET /health`, the database schema and seed, login with Redis sessions, the role→permission map and route guard, and authenticated Socket.io with server-assigned rooms), Spec 2 (WA: the WhatsApp connection) and Spec 3 (MSG: receiving and sending text messages) are built. `pnpm dev` starts the web app on <http://localhost:5173> (login page, Super Admin connection page with the QR, a Messages page for the Super Admin and Managers, and a live connection banner), the api, and the worker, which holds the single-session lock and connects through the Fake provider (labelled "Simulated") or, with `WHATSAPP_PROVIDER=baileys`, the real test number. Customer messages appear live; replies go through a queue and show only the ticks WhatsApp reports. The real test phone check for WA (WA-27) passed; the one for MSG (MSG-28) is open. Spec 4 (DEMO) adds a browser-only demo mode of the whole CRM on dummy data (below); it is built, with the final walk-through in a real browser left for the user.
 
 ## Demo mode (prototype, no backend needed)
 
-Spec 4 (`DEMO`, `docs/specs/004-demo.md`) turns the web app into a clickable prototype that runs entirely in the browser on dummy data for "Skyline Realty". Nothing reaches WhatsApp, Postgres or Redis, and every screen is tagged "Demo · simulated".
+Spec 4 (`DEMO`, `docs/specs/004-demo.md`) turns the web app into a clickable prototype of the whole CRM that runs entirely in the browser on dummy data for "Skyline Realty". Nothing reaches WhatsApp, Postgres or Redis, and every screen is tagged "Demo · simulated". The real stack (`pnpm dev`, below) is unchanged.
 
 ```bash
 pnpm install
 pnpm --filter @crm/web dev:demo       # http://localhost:5174 (no Docker, no .env)
-pnpm --filter @crm/web build:demo     # static site in apps/web/dist
+pnpm --filter @crm/web build:demo     # static site in apps/web/dist (+ 404.html and _redirects)
 pnpm --filter @crm/web preview:demo   # serve that build on http://localhost:5174
 ```
 
-Log in with any demo account on the login page ("Log in as"), password `demo1234`: Aarav Shah (Super Admin), Neha Kapoor and Rohan Mehta (Managers), Priya Nair, Karan Verma, Sneha Iyer and Vikram Rao (Employees). Ananya Das is deactivated and cannot log in. Each browser tab keeps its own login, so two windows can be two users. The data lives in `localStorage` and can be reset.
+### Accounts
 
-Built so far (phases 1 to 4 of 5): demo logins, the role-based sidebar and page guard, the simulated WhatsApp page (QR with countdown, “Simulate scan”, log out with confirm), and the shared inbox (filters, unread counts, assign, status, internal notes, the “… is replying” lock with take-over, simulated ticks with Failed + Retry). **Demo controls** (bottom of the sidebar) simulate a customer message, another agent replying, a connection drop, auto activity (a customer writes about every 45 s) and a data reset. Phase 3 adds leads (table, board by stage, detail page with stage, owner, needs and full history), properties (cards with filters, detail with gallery, units and brochures, session-only upload, “Share into chat”, also from the inbox composer) and follow-ups (Overdue, Today, Upcoming, Done; create, edit, complete; “Run now (test)” sends the test auto-reply once). Phase 4 adds campaigns (a 5-step wizard: upload CSV or use the sample file, segment, message, preview and confirm with every skipped row's reason, then live simulated sending at one message per ~2 s with pause and resume; test numbers only by default; the opt-out list), users (add, change role, deactivate with history kept), the dashboard, per-employee reports with CSV export, the read-only audit log, and the Employee home page. Lead stage names and the reply-lock rules in demo mode are placeholders until the LEAD and INB specs.
+Every account uses the password `demo1234`; the login page has a "Log in as" button for each.
+
+| Role                   | Name                                            | Email                                               |
+| ---------------------- | ----------------------------------------------- | --------------------------------------------------- |
+| Super Admin            | Aarav Shah                                      | `aarav@skyline.test`                                |
+| Manager                | Neha Kapoor, Rohan Mehta                        | `neha@`, `rohan@skyline.test`                       |
+| Employee               | Priya Nair, Karan Verma, Sneha Iyer, Vikram Rao | `priya@`, `karan@`, `sneha@`, `vikram@skyline.test` |
+| Employee (deactivated) | Ananya Das                                      | `ananya@skyline.test` (login refused)               |
+
+Each browser tab keeps its own login, so two windows of the same browser can be two people working on the same data live. The data lives in this browser's `localStorage`; "Reset demo data" (login page, or Demo controls) brings the original data back.
+
+### What is in it
+
+- **WhatsApp** (Super Admin): simulated QR with a 20 s countdown, "Simulate scan", log out with a confirm, a banner for everyone.
+- **Inbox**: Open/Pending/Closed and Unassigned/Mine/All, unread counts, assign, status, internal notes, the "… is replying" lock with take-over, simulated ticks (clock, ✓, ✓✓, blue ✓✓) and Failed + Retry, "Share property", the lead panel.
+- **Leads**: table and board by stage; detail with stage, owner, needs, follow-ups and full history.
+- **Properties**: cards with filters; detail with gallery, units, brochures, a session-only upload; "Share into chat".
+- **Follow-ups**: Overdue, Today, Upcoming, Done; create, edit, complete; "Run now (test)" sends the test auto-reply once.
+- **Campaigns**: Upload CSV (or the sample file) → Segment → Message → Preview & confirm (every skipped row with its reason) → live simulated sending, one message per ~2 s, with pause and resume. Test numbers only by default; the opt-out list.
+- **Users**: add, change role, deactivate (history kept, logged out at once). **Dashboard**, **Reports** (per employee, CSV export), **Audit log** (read-only), and the Employee **Home**.
+- **Demo controls** (bottom of the sidebar): a customer writes in (new or existing contact, or STOP), another agent replies (holds the lock ~8 s), drop the connection (back in ~8 s), auto activity (a customer writes about every 45 s), reset.
+
+### Walk-through: the 7-step final demo
+
+Open two windows: **A** as Neha (Manager), **B** as Priya (Employee).
+
+1. **Create a lead and assign it.** In A, Demo controls → "Customer writes in" from "A new test contact" → Send. The new chat opens with a New lead. Set Assignee to Priya.
+2. **The employee sees it.** In B the chat appears in Priya's inbox, with a toast; her Leads page shows the lead.
+3. **A test message arrives and the employee replies.** In A, Demo controls → the same contact writes again. In B, open the chat and type a reply: A shows "Priya Nair is replying…" and cannot send. B sends; the ticks move clock → ✓ → ✓✓ → blue.
+4. **Send a brochure.** In B, "Share property" → Green Valley Residency → Send to customer: a property card with the brochure name.
+5. **Run a safe campaign.** In A, Campaigns → New campaign → "Use the sample file" → Segment (all) → Message → Preview: the opted-out number (+1 202 555 0124), the non-test number, the duplicate and the bad number are skipped with reasons. Tick the confirmation → Start; watch it send, pause and resume.
+6. **Disconnect and reconnect WhatsApp.** Demo controls → Drop connection: both banners turn amber and Send is disabled; it reconnects after ~8 s. As Aarav, WhatsApp → Log out WhatsApp → confirm → Simulate scan.
+7. **Show the reports and the audit log.** In A, Reports (Export CSV) and Audit log: every step above is listed.
+
+### Hosting the demo build
+
+`build:demo` writes a static site to `apps/web/dist`. Deep links (`/leads/<id>`) work with `preview:demo`, Netlify (`_redirects`) and GitHub Pages on a root domain (`404.html`). The build uses absolute `/assets/` paths, so a sub-path host (e.g. `user.github.io/repo/`) needs `vite build --mode demo --base /repo/`. Publishing it anywhere is an outward step to agree first.
+
+### Limits (simulated on purpose)
+
+- Messages, ticks, the QR and campaign sends are simulated and labelled. Uploads last for the tab's session only. Data is per browser.
+- Lead stage names, the 60 s reply lock with Manager take-over, and "closing a chat does not close its lead" are placeholders until the LEAD and INB specs.
 
 ## What we did in session 1
 

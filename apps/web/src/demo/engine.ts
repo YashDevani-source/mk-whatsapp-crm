@@ -396,6 +396,21 @@ export function assign(
     `${name(before)} → ${name(assigneeId)}`,
   );
   pushConversation(data, ctx, row);
+  announceAssignment(data, ctx, row, actor);
+}
+
+function announceAssignment(
+  data: DemoData,
+  ctx: EngineCtx,
+  row: ConversationRow,
+  by: MessageSender,
+): void {
+  emit(ctx, 'conversation.assigned', {
+    conversationId: row.id,
+    contact: contactLabel(data, row.contactId),
+    assigneeId: row.assigneeId,
+    by,
+  });
 }
 
 const STATUS_LABEL: Record<ConversationStatus, string> = {
@@ -520,6 +535,7 @@ export function setLeadOwner(
     row.assigneeId = ownerId;
     data.locks = data.locks.filter((l) => l.conversationId !== row.id || l.holder.id === ownerId);
     pushConversation(data, ctx, row);
+    announceAssignment(data, ctx, row, actor);
   }
 }
 

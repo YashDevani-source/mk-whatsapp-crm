@@ -187,7 +187,15 @@ Not built yet: leads and lead history, assignments, notes, properties and media,
 - **Keep shapes from `@crm/shared`.** Dummy screens for modules that have no api yet (leads, properties, follow-ups, campaigns, reports, audit) should still type their data with Zod schemas in `packages/shared`, so the later real api fits without rework.
 - **Server rules still apply.** The reply lock must be enforced at the send endpoint (INB), and role checks stay on the server even when the UI hides a button.
 
-## 12. Open items carried forward
+## 11b. Demo mode (Spec 4, DEMO)
+
+- `pnpm --filter @crm/web dev:demo` (port 5174) runs the whole CRM in the browser on dummy "Skyline Realty" data. No api, worker, Docker or phone. Logins: `<first name>@skyline.test` / `demo1234`. README "Demo mode" has the accounts and the 7-step walk-through.
+- `apps/web/src/main.tsx` picks the demo (`vite --mode demo` or `VITE_DEMO=1`, `mode.ts`) or the live app. Live mode is unchanged.
+- `apps/web/src/demo/`: `seed.ts` (dataset, times relative to now), `store.ts` (Zod-checked `localStorage`, raw-text cache, `sync()`), `api.ts` (one async function per future route; checks session, role, Employee scope, reply lock), `engine.ts` (state changes shared with the simulator), `sim.ts` (stored tasks: QR refresh, reconnect, ticks, agent replies, campaign steps, auto enquiries; run by every tab), `bus.ts` (real socket event names plus drafts, `BroadcastChannel` to other tabs), and one file per screen.
+- Shapes: the MSG schemas plus the draft contracts in `packages/shared/src/crm.ts` (leads, properties, follow-ups, campaigns, users, audit, inbox extras). The real INB, LEAD, PROP, FUP, CAMP, USR, RPT and AUD specs start from these and from the demo api's function list.
+- Placeholders until the real specs: lead stage names, the 60 s reply lock with Manager take-over, chats closing without closing their lead.
+
+
 
 - **MSG-28** (real-phone message check) and **MSG-24** (browser check) are not yet ticked. To finish: run `WHATSAPP_PROVIDER=baileys pnpm dev`, log in as `manager@crm.test`, message the number from the test phone, reply from the CRM and watch the ticks, type on the company phone ("Sent from phone"), send a photo ("Unsupported message (image)"), then restart with a queued message.
 - Next spec after MSG is **INB** (assignment, reply lock, Employee scope and assignee rooms, unread counts, paging). Then LEAD (lead auto-created on inbound), PROP, FUP, CMP, RPT, AUD, USR.
