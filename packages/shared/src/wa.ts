@@ -1,0 +1,167 @@
+// WA contracts: connection state, QR, the worker↔api event and command shapes, Redis names, and
+// the provider interface. MSG adds the message events and `sendText` (docs/specs/003-messaging.md).
+import { z } from 'zod';
+import {
+  ConversationSummary,
+  MessageStatusUpdate,
+  MessageView,
+  type ReportedStatus,
+} from './messages.ts';
+
+export const WaConnectionState = z.enum([
+  'connecting',
+  'qr_required',
+  'connected',
+  'disconnected',
+  'reconnect_required',
+]);
+export type WaConnectionState = z.infer<typeof WaConnectionState>;
+
+export const WaProviderName = z.enum(['fake', 'baileys']);
+export type WaProviderName = z.infer<typeof WaProviderName>;
+
+export const WaReason = z.enum([
+  'network',
+  'logged_out_from_phone',
+  'logged_out_by_admin',
+  'qr_timeout',
+  'session_unreadable',
+  'worker_offline',
+  'other',
+]);
+export type WaReason = z.infer<typeof WaReason>;
+
+// Published as `wa.state` to `global` and kept in Redis under `wa:state`. `provider` is null only
+// when no worker is running (`worker_offline`), since then nobody knows which provider is set.
+export const WaState = z.object({
+  v: z.literal(1),
+  state: WaConnectionState,
+  provider: WaProviderName.nullable(),
+  reason: WaReason.optional(),
+  at: z.iso.datetime(),
+});
+export type WaState = z.infer<typeof WaState>;
+
+// Published as `wa.qr` to `admin` only (WA-15), and kept in Redis under `wa:qr`.
+export const WaQr = z.object({
+  v: z.literal(1),
+  qr: z.string().min(1),
+  at: z.iso.datetime(),
+});
+export type WaQr = z.infer<typeof WaQr>;
+
+// The envelope on the events channel (worker to api, `waChannels(db).events`). The api picks the rooms from `event`;
+// the publisher never chooses them. MSG events go to `inbox:all` only (MSG-23).
+export const CrmEvent = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('wa.state'), data: WaState }),
+  z.object({ event: z.literal('wa.qr'), data: WaQr }),
+  z.object({ event: z.literal('message.created'), data: MessageView }),
+  z.object({ event: z.literal('message.status'), data: MessageStatusUpdate }),
+  z.object({ event: z.literal('conversation.updated'), data: ConversationSummary }),
+]);
+export type CrmEvent = z.infer<typeof CrmEvent>;
+
+// On the commands channel (api to worker, `waChannels(db).commands`). Only the lock holder acts on it (WA-18, WA-19).
+export const WaCommand = z.object({
+  v: z.literal(1),
+  command: z.enum(['new_qr', 'logout']),
+  actorId: z.uuid(),
+});
+export type WaCommand = z.infer<typeof WaCommand>;
+
+// Redis keys shared by the api and the worker. Keys are per database; channels are not (below).
+export const WA_REDIS = {
+  lock: 'wa:lock',
+  state: 'wa:state',
+  qr: 'wa:qr',
+} as const;
+
+export interface WaChannels {
+  // Worker to api, `CrmEvent`.
+  events: string;
+  // Api to worker, `WaCommand`.
+  commands: string;
+}
+
+// WA-28: Redis pub/sub channels are shared by every database of a Redis server, unlike keys. The
+// database number in the name keeps processes on different databases (dev on db 0, tests on 1
+// and 2) from hearing each other. `db` is the database of the process's own Redis connection.
+export function waChannels(db: number): WaChannels {
+  return { events: `crm:events:${db}`, commands: `wa:commands:${db}` };
+}
+
+// The state the api reports when the worker's state key has expired (WA-16).
+export function workerOfflineState(at: Date = new Date()): WaState {
+  return {
+    v: 1,
+    state: 'disconnected',
+    provider: null,
+    reason: 'worker_offline',
+    at: at.toISOString(),
+  };
+}
+
+// --- Provider interface (types only). Adapters live in apps/worker/src/providers/. ---
+
+// What the provider reports about a closed connection. The worker decides what happens next.
+// `restart` is a close the provider asks to be reconnected at once (Baileys does this right after
+// a QR scan). `replaced` means another client took over the same credentials.
+export type ProviderCloseReason = 'network' | 'restart' | 'logged_out' | 'qr_timeout' | 'replaced';
+
+// MSG-04: why an adapter dropped a message. Only the reason reaches the worker, for its log;
+// never the number or the text. Protocol messages (reactions, edits, deletions; MSG-05) are
+// dropped without an event.
+export type ProviderSkipReason = 'group' | 'broadcast' | 'status' | 'channel' | 'unknown_sender';
+
+// MSG: one message as the provider reports it. `from` is E.164.
+export interface ProviderInboundMessage {
+  providerMessageId: string;
+  from: string;
+  // Typed on the company phone itself, or (Fake only) an echo of a CRM send (MSG-06, MSG-17).
+  fromMe: boolean;
+  profileName?: string;
+  content: { kind: 'text'; text: string } | { kind: 'unsupported'; unsupportedKind: string };
+  at: Date;
+}
+
+export type ProviderEvent =
+  | { type: 'qr'; qr: string }
+  | { type: 'open'; number?: string }
+  | { type: 'close'; reason: ProviderCloseReason }
+  | { type: 'message'; message: ProviderInboundMessage }
+  | { type: 'skipped'; reason: ProviderSkipReason }
+  | { type: 'status'; providerMessageId: string; status: ReportedStatus; at: Date };
+
+// What `sendText` returns: WhatsApp's id for the message, and when it was accepted (MSG-14).
+export interface ProviderSendResult {
+  providerMessageId: string;
+  at: Date;
+}
+
+// One signal key write; `value: null` deletes the key.
+export interface ProviderKeyEntry {
+  type: string;
+  id: string;
+  value: string | null;
+}
+
+// Where an adapter keeps its credentials and keys, as opaque strings. The worker's store encrypts
+// them (WA-06); adapters never see the encryption.
+export interface ProviderAuthStore {
+  loadCreds(): Promise<string | undefined>;
+  saveCreds(value: string): Promise<void>;
+  getKeys(type: string, ids: readonly string[]): Promise<Record<string, string>>;
+  setKeys(entries: readonly ProviderKeyEntry[]): Promise<void>;
+}
+
+export interface WhatsAppProvider {
+  readonly name: WaProviderName;
+  // Opens a new connection. Events from it go to `onEvent` until `close` or `logout`.
+  connect(store: ProviderAuthStore, onEvent: (event: ProviderEvent) => void): Promise<void>;
+  // Unlinks this device at WhatsApp, then closes the connection.
+  logout(): Promise<void>;
+  // Closes the connection and keeps the session (shutdown, lost lock).
+  close(): Promise<void>;
+  // MSG: sends a text to an E.164 number. Rejects when there is no open connection.
+  sendText(to: string, text: string): Promise<ProviderSendResult>;
+}
