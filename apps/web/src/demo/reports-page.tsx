@@ -1,14 +1,15 @@
-// DEMO-30 to DEMO-32: the dashboard, the per-employee report with CSV export, the read-only
-// audit log, and the Employee home. Tables, not charts.
+// DEMO-30 to DEMO-32: the per-employee report with CSV export, the read-only
+// audit log, and the Employee home. Tables, not charts (the dashboard is dashboard-page.tsx).
 import { AuditAction, LEAD_STAGE_LABELS, LeadStage, type AuditEntry } from '@crm/shared';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { stageTone } from './chat-view.ts';
-import { useDemo, useLive, useNow, useUser } from './context.tsx';
-import { formatAgo, formatDateTime, formatPhone } from './format.ts';
+import { useLive, useNow, useUser } from './context.tsx';
+import { countOf, formatDateTime, formatPhone } from './format.ts';
 import { employeeReportCsv, filterAudit, type ReportFilter } from './reports.ts';
 import { followUpTab } from './rules.ts';
-import { Chip, Empty, ErrorNote, PageHeader, Skeleton, Tag } from './ui.tsx';
+import { Donut, Legend } from './charts.tsx';
+import { STAGE_COLOR } from './dashboard-page.tsx';
+import { Chip, Empty, ErrorNote, PageHeader, Skeleton, StatStrip, Tag } from './ui.tsx';
 
 function downloadText(fileName: string, text: string): void {
   const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
@@ -25,85 +26,6 @@ const dayStart = (day: string): string | null =>
 const dayEnd = (day: string): string | null =>
   day ? new Date(`${day}T23:59:59.999`).toISOString() : null;
 
-export function DashboardPage() {
-  const { now } = useDemo();
-  const dash = useLive((a) => a.getDashboard(), 'dashboard');
-  const chats = useLive((a) => a.listConversations(), 'conversations');
-  const followUps = useLive((a) => a.listFollowUps(), 'followups');
-  const unassigned = (chats.data ?? [])
-    .filter((c) => c.assignee === null && c.status !== 'closed')
-    .slice(0, 6);
-  const overdue = (followUps.data ?? [])
-    .filter((f) => followUpTab(f, now()) === 'overdue')
-    .slice(0, 6);
-
-  const cards: [string, number | undefined, string, string][] = [
-    ['Open chats', dash.data?.openChats, '/inbox', 'info'],
-    ['Unassigned chats', dash.data?.unassignedChats, '/inbox', 'warn'],
-    ['New leads', dash.data?.newLeads, '/leads', 'info'],
-    ['Overdue follow-ups', dash.data?.overdueFollowUps, '/follow-ups', 'error'],
-    ['Converted this month', dash.data?.convertedThisMonth, '/leads', 'ok'],
-  ];
-
-  return (
-    <>
-      <PageHeader
-        title="Dashboard"
-        subtitle="What needs attention now. Full numbers are under Reports."
-      />
-      {dash.error !== undefined && <ErrorNote error={dash.error} />}
-      <div className="number-cards">
-        {cards.map(([label, value, to, tone]) => (
-          <Link key={label} to={to} className={`number-card number-${tone}`}>
-            <span className="number">{value ?? '…'}</span>
-            <span>{label}</span>
-          </Link>
-        ))}
-      </div>
-      <div className="two-col">
-        <section className="card">
-          <h2>Unassigned chats</h2>
-          {unassigned.length === 0 ? (
-            <p className="muted">Every open chat has an owner.</p>
-          ) : (
-            <ul className="plain-list">
-              {unassigned.map((c) => (
-                <li key={c.id} className="list-row">
-                  <Link to={`/inbox/${c.id}`}>
-                    {c.contact.name ?? formatPhone(c.contact.phone)}
-                  </Link>
-                  <span className="muted small">
-                    {c.lastMessageAt ? formatAgo(c.lastMessageAt, now()) : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-        <section className="card">
-          <h2>Overdue follow-ups</h2>
-          {overdue.length === 0 ? (
-            <p className="muted">Nothing overdue.</p>
-          ) : (
-            <ul className="plain-list">
-              {overdue.map((f) => (
-                <li key={f.id} className="list-row">
-                  <Link to={`/leads/${f.leadId}`}>
-                    {f.contact.name ?? formatPhone(f.contact.phone)}
-                  </Link>
-                  <span className="muted small">
-                    {f.note} · {f.owner.name}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
-    </>
-  );
-}
-
 export function ReportsPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -119,12 +41,18 @@ export function ReportsPage() {
     'report-all',
   );
   const rows = report.data ?? [];
+  const sumRows = (key: 'chatsAssigned' | 'repliesSent' | 'openLeads' | 'followUpsDone'): number =>
+    rows.reduce((n, r) => n + r[key], 0);
 
   return (
     <>
       <PageHeader
         title="Reports"
-        subtitle="Per-employee performance. The date range applies to replies, follow-ups done and lead activity."
+        subtitle={
+          report.data
+            ? `${countOf(sumRows('repliesSent'), 'reply', 'replies')} and ${countOf(sumRows('followUpsDone'), 'follow-up')} done in this range. The range applies to replies, follow-ups and lead activity.`
+            : 'Per-employee performance.'
+        }
         actions={
           <button
             type="button"
@@ -141,6 +69,41 @@ export function ReportsPage() {
           </button>
         }
       />
+      {report.data && (
+        <StatStrip
+          label="Totals for the rows shown"
+          stats={[
+            {
+              key: 'chats',
+              label: 'Chats assigned',
+              value: sumRows('chatsAssigned'),
+              hint: 'Open and pending now',
+              tone: 'neutral',
+            },
+            {
+              key: 'replies',
+              label: 'Replies sent',
+              value: sumRows('repliesSent'),
+              hint: 'In the date range',
+              tone: 'neutral',
+            },
+            {
+              key: 'leads',
+              label: 'Open leads',
+              value: sumRows('openLeads'),
+              hint: 'Owned now',
+              tone: 'neutral',
+            },
+            {
+              key: 'followups',
+              label: 'Follow-ups done',
+              value: sumRows('followUpsDone'),
+              hint: 'In the date range',
+              tone: 'neutral',
+            },
+          ]}
+        />
+      )}
       <div className="filters">
         <label className="inline-field">
           <span>From</span>
@@ -220,7 +183,7 @@ export function ReportsPage() {
   );
 }
 
-const ACTION_LABELS: Readonly<Record<AuditAction, string>> = {
+export const ACTION_LABELS: Readonly<Record<AuditAction, string>> = {
   'auth.login': 'Logged in',
   'auth.logout': 'Logged out',
   'wa.connected': 'WhatsApp connected',
@@ -269,11 +232,50 @@ export function AuditPage() {
         title="Audit log"
         subtitle={
           <>
-            Every login, assignment, stage change, campaign action and WhatsApp change.{' '}
+            {audit.data
+              ? `${countOf(entries.filter((e) => new Date(e.at).toDateString() === new Date().toDateString()).length, 'entry', 'entries')} today. Every login, assignment, stage change, campaign action and WhatsApp change.`
+              : 'Every login, assignment, stage change, campaign action and WhatsApp change.'}{' '}
             <Tag>Read-only</Tag>
           </>
         }
       />
+      {audit.data && (
+        <StatStrip
+          label="Audit totals"
+          stats={[
+            {
+              key: 'shown',
+              label: 'Entries shown',
+              value: shown.length,
+              hint: `of ${entries.length} in the log`,
+              tone: 'neutral',
+            },
+            {
+              key: 'today',
+              label: 'Today',
+              value: entries.filter(
+                (e) => new Date(e.at).toDateString() === new Date().toDateString(),
+              ).length,
+              hint: 'Since midnight',
+              tone: 'neutral',
+            },
+            {
+              key: 'logins',
+              label: 'Logins',
+              value: entries.filter((e) => e.action === 'auth.login').length,
+              hint: 'All time',
+              tone: 'neutral',
+            },
+            {
+              key: 'stages',
+              label: 'Stage changes',
+              value: entries.filter((e) => e.action === 'lead.stage').length,
+              hint: 'All time',
+              tone: 'neutral',
+            },
+          ]}
+        />
+      )}
       <div className="filters">
         <select value={actor} onChange={(e) => setActor(e.target.value)} aria-label="Who">
           <option value="">Everyone</option>
@@ -350,12 +352,51 @@ export function HomePage() {
   const due = (followUps.data ?? []).filter((f) =>
     ['overdue', 'today'].includes(followUpTab(f, now)),
   );
+  const stageParts = LeadStage.options.map((stage) => ({
+    label: LEAD_STAGE_LABELS[stage],
+    value: (leads.data ?? []).filter((l) => l.stage === stage).length,
+    color: STAGE_COLOR[stage],
+  }));
 
   return (
     <>
       <PageHeader
-        title={`Good to see you, ${user.name.split(' ')[0]}`}
-        subtitle="Your chats, follow-ups and leads."
+        title={`Hello, ${user.name.split(' ')[0]}`}
+        subtitle={`${countOf(unread.length, 'chat waits', 'chats wait')} for you and ${countOf(due.length, 'follow-up is', 'follow-ups are')} due today or overdue.`}
+      />
+      <StatStrip
+        label="Your work"
+        stats={[
+          {
+            key: 'unread',
+            label: 'Unread chats',
+            value: unread.length,
+            hint: 'Customers waiting',
+            tone: 'blue',
+          },
+          {
+            key: 'overdue',
+            label: 'Overdue',
+            value: due.filter((f) => followUpTab(f, now) === 'overdue').length,
+            hint: 'Follow-ups past due',
+            tone: 'red',
+          },
+          {
+            key: 'today',
+            label: 'Due today',
+            value: due.filter((f) => followUpTab(f, now) === 'today').length,
+            hint: 'Follow-ups later today',
+            tone: 'yellow',
+          },
+          {
+            key: 'open',
+            label: 'Open leads',
+            value: (leads.data ?? []).filter((l) => l.stage !== 'converted' && l.stage !== 'lost')
+              .length,
+            hint: 'Yours to move on',
+            tone: 'neutral',
+          },
+        ]}
       />
       <div className="three-col">
         <section className="card">
@@ -395,17 +436,14 @@ export function HomePage() {
         </section>
         <section className="card">
           <h2>My leads by stage</h2>
-          <ul className="plain-list">
-            {LeadStage.options.map((s) => {
-              const count = (leads.data ?? []).filter((l) => l.stage === s).length;
-              return (
-                <li key={s} className="list-row">
-                  <Chip tone={stageTone(s)}>{LEAD_STAGE_LABELS[s]}</Chip>
-                  <strong>{count}</strong>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="donut-stack">
+            <Donut
+              parts={stageParts}
+              total={stageParts.reduce((n, p) => n + p.value, 0)}
+              unit="lead"
+            />
+            <Legend parts={stageParts} />
+          </div>
           <Link to="/leads">Open my leads</Link>
         </section>
       </div>

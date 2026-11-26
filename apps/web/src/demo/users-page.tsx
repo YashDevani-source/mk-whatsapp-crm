@@ -4,19 +4,20 @@
 import { Role, type UserView } from '@crm/shared';
 import { useState } from 'react';
 import { useDemo, useLive, useUser } from './context.tsx';
-import { formatDateTime } from './format.ts';
+import { countOf, formatDateTime } from './format.ts';
 import { DEMO_PASSWORD } from './seed.ts';
 import { useToast } from './toasts.tsx';
 import {
   Avatar,
   Chip,
-  errorText,
   ErrorNote,
+  errorText,
   Modal,
   PageHeader,
-  RoleBadge,
   ROLE_LABELS,
+  RoleBadge,
   Skeleton,
+  StatStrip,
 } from './ui.tsx';
 
 export function UsersPage() {
@@ -46,13 +47,52 @@ export function UsersPage() {
     <>
       <PageHeader
         title="Users"
-        subtitle="Deactivating keeps history: past messages and changes keep the person's name."
+        subtitle={
+          users.data
+            ? `${countOf(users.data.filter((u) => u.active).length, 'active person', 'active people')}. Deactivating keeps history: past messages keep the person’s name.`
+            : 'Who can log in, and with which role.'
+        }
         actions={
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
             Add user
           </button>
         }
       />
+      {users.data && (
+        <StatStrip
+          label="Users by role"
+          stats={[
+            {
+              key: 'admin',
+              label: 'Super Admin',
+              value: users.data.filter((u) => u.active && u.role === 'SUPER_ADMIN').length,
+              hint: 'Runs the WhatsApp number',
+              tone: 'neutral',
+            },
+            {
+              key: 'manager',
+              label: 'Managers',
+              value: users.data.filter((u) => u.active && u.role === 'MANAGER').length,
+              hint: 'Assign and oversee',
+              tone: 'neutral',
+            },
+            {
+              key: 'employee',
+              label: 'Employees',
+              value: users.data.filter((u) => u.active && u.role === 'EMPLOYEE').length,
+              hint: 'Reply to customers',
+              tone: 'neutral',
+            },
+            {
+              key: 'inactive',
+              label: 'Deactivated',
+              value: users.data.filter((u) => !u.active).length,
+              hint: 'History kept',
+              tone: 'grey',
+            },
+          ]}
+        />
+      )}
       {users.loading && <Skeleton rows={6} />}
       {users.error !== undefined && <ErrorNote error={users.error} />}
       {users.data && (

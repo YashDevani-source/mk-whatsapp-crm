@@ -147,3 +147,64 @@ export function Modal({
     </div>
   );
 }
+
+// A row of number cards with a coloured band (DEMO-36), after the reference's order-status
+// cards. With `onSelect` each card is a button that picks a tab or a filter.
+// Colour only where it means something: stage and status colours; plain counts are neutral.
+export type StatTone = 'neutral' | 'blue' | 'orange' | 'yellow' | 'green' | 'red' | 'grey';
+
+export interface Stat {
+  key: string;
+  label: string;
+  value: number | string;
+  hint?: string;
+  tone: StatTone;
+}
+
+export function StatStrip({
+  stats,
+  label,
+  selected,
+  onSelect,
+  tabs,
+}: {
+  stats: Stat[];
+  label: string;
+  selected?: string | null;
+  onSelect?: (key: string) => void;
+  // Tabs: one card is always the open one. Otherwise the cards toggle a filter.
+  tabs?: boolean;
+}) {
+  const body = (s: Stat) => (
+    <>
+      <span className="stat-band">{s.label}</span>
+      <span className="stat-body">
+        <span className="stat-value">{s.value}</span>
+        {s.hint && <span className="stat-hint">{s.hint}</span>}
+      </span>
+    </>
+  );
+  return (
+    <div className="stat-strip" role={onSelect && tabs ? 'tablist' : 'group'} aria-label={label}>
+      {stats.map((s) =>
+        onSelect ? (
+          <button
+            key={s.key}
+            type="button"
+            className={`stat-card stat-${s.tone}${selected === s.key ? ' active' : ''}`}
+            onClick={() => onSelect(s.key)}
+            {...(tabs
+              ? { role: 'tab', 'aria-selected': selected === s.key }
+              : { 'aria-pressed': selected === s.key })}
+          >
+            {body(s)}
+          </button>
+        ) : (
+          <div key={s.key} className={`stat-card stat-${s.tone}`}>
+            {body(s)}
+          </div>
+        ),
+      )}
+    </div>
+  );
+}

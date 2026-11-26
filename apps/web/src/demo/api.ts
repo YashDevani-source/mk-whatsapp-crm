@@ -32,9 +32,11 @@ import { campaignCounts, checkRecipients, normalizePhone } from './campaigns.ts'
 import type { DemoBus } from './bus.ts';
 import * as engine from './engine.ts';
 import {
+  dashboardCharts,
   dashboardNumbers,
   employeeReport,
   type Dashboard,
+  type DashboardCharts,
   type EmployeeRow,
   type ReportFilter,
 } from './reports.ts';
@@ -819,11 +821,16 @@ export function createDemoApi(deps: DemoApiDeps) {
       });
     },
 
-    // ── Dashboard and reports (DEMO-30) ──
+    // ── Dashboard and reports (DEMO-30, DEMO-35) ──
 
     async getDashboard(): Promise<Dashboard> {
       await guard('reports.read');
       return dashboardNumbers(store.data, now());
+    },
+
+    async getDashboardCharts(): Promise<DashboardCharts> {
+      await guard('reports.read');
+      return dashboardCharts(store.data, now());
     },
 
     async getReport(filter: ReportFilter): Promise<EmployeeRow[]> {

@@ -46,3 +46,8 @@ export function initials(name: string): string {
     .slice(0, 2)
     .toUpperCase();
 }
+
+// "1 chat", "3 chats": a count with its noun.
+export function countOf(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}

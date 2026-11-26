@@ -5,7 +5,7 @@ import { useState, type ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { demoCan } from './access.ts';
 import { useDemo, useLive, useUser } from './context.tsx';
-import { formatPhone, formatPrice } from './format.ts';
+import { countOf, formatPhone, formatPrice } from './format.ts';
 import { placeholderImage, propertyCard, uploadProblem } from './rules.ts';
 import { useToast } from './toasts.tsx';
 import {
@@ -16,6 +16,7 @@ import {
   Modal,
   PageHeader,
   Skeleton,
+  StatStrip,
   Tag,
   type Tone,
 } from './ui.tsx';
@@ -35,6 +36,9 @@ function fromPrice(p: ProjectView): number | null {
 function photoSrc(project: ProjectView, media: MediaFile, n: number): string {
   return media.url ?? placeholderImage(`${project.name} · ${n + 1}`, `${project.id}-${n}`);
 }
+
+const unitCount = (list: ProjectView[], status: ProjectView['units'][number]['status']): number =>
+  list.reduce((n, p) => n + p.units.filter((u) => u.status === status).length, 0);
 
 function ProjectList() {
   const projects = useLive((a) => a.listProjects(), 'projects');
@@ -61,7 +65,49 @@ function ProjectList() {
 
   return (
     <>
-      <PageHeader title="Properties" subtitle="Skyline Realty projects and their units." />
+      <PageHeader
+        title="Properties"
+        subtitle={
+          projects.data
+            ? `${countOf(unitCount(projects.data, 'available'), 'unit')} available across ${countOf(projects.data.length, 'project')}. Share one into a chat as a card.`
+            : 'Skyline Realty projects and their units.'
+        }
+      />
+      {projects.data && (
+        <StatStrip
+          label="Units by status"
+          stats={[
+            {
+              key: 'projects',
+              label: 'Projects',
+              value: projects.data.length,
+              hint: `${projects.data.reduce((n, p) => n + p.units.length, 0)} units in total`,
+              tone: 'neutral',
+            },
+            {
+              key: 'available',
+              label: 'Available',
+              value: unitCount(projects.data, 'available'),
+              hint: 'Ready to share',
+              tone: 'green',
+            },
+            {
+              key: 'reserved',
+              label: 'Reserved',
+              value: unitCount(projects.data, 'reserved'),
+              hint: 'On hold for a buyer',
+              tone: 'yellow',
+            },
+            {
+              key: 'sold',
+              label: 'Sold',
+              value: unitCount(projects.data, 'sold'),
+              hint: 'No longer offered',
+              tone: 'grey',
+            },
+          ]}
+        />
+      )}
       <div className="filters">
         <input
           type="search"

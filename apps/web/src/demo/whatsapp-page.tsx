@@ -1,10 +1,13 @@
 // DEMO-11, DEMO-12: the Super Admin's WhatsApp page with the simulated QR.
 import QRCode from 'qrcode';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { bannerText } from '../view.ts';
 import { useDemo, useLive, useNow } from './context.tsx';
 import { TIMING } from './engine.ts';
 import { formatDateTime, formatPhone } from './format.ts';
+import { WhatsAppLogo } from './icons.tsx';
+import { ACTION_LABELS } from './reports-page.tsx';
 import { Chip, errorText, ErrorNote, Modal, PageHeader, Skeleton, Tag, type Tone } from './ui.tsx';
 
 const STATE_LABEL = {
@@ -37,6 +40,9 @@ export function WhatsAppPage() {
   const { api } = useDemo();
   const wa = useLive((a) => a.getWaAdmin(), 'wa-admin');
   const now = useNow(1000);
+  // The connection's own history, from the audit log (the Super Admin may read it).
+  const audit = useLive((a) => a.listAudit(), 'audit');
+  const history = (audit.data ?? []).filter((e) => e.action.startsWith('wa.')).slice(0, 6);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [confirming, setConfirming] = useState(false);
@@ -68,12 +74,18 @@ export function WhatsAppPage() {
     <>
       <PageHeader
         title="WhatsApp connection"
-        subtitle="One company number, one live connection. Only the Super Admin sees this page."
+        subtitle={
+          state.state === 'connected' && number
+            ? `Connected as ${formatPhone(number)} since ${formatDateTime(since)}. One company number, one live connection.`
+            : `${label}. One company number, one live connection; only the Super Admin sees this page.`
+        }
       />
       <div className="wa-grid">
         <section className="card state-card">
           <div className="card-head">
-            <h2>Status</h2>
+            <h2 className="with-logo">
+              <WhatsAppLogo size={28} /> Status
+            </h2>
             <Tag>Simulated</Tag>
           </div>
           <dl className="facts">
@@ -143,6 +155,33 @@ export function WhatsAppPage() {
                 Get new QR
               </button>
             </div>
+          </section>
+        )}
+
+        {(state.state === 'connected' || state.state === 'disconnected') && (
+          <section className="card">
+            <div className="card-head">
+              <h2>Connection history</h2>
+              <Link to="/audit" className="small">
+                Audit log
+              </Link>
+            </div>
+            {history.length === 0 ? (
+              <p className="muted">No connection changes yet.</p>
+            ) : (
+              <ul className="plain-list">
+                {history.map((e) => (
+                  <li key={e.id} className="list-row">
+                    <span>
+                      {ACTION_LABELS[e.action]}
+                      {e.detail && <span className="muted small"> · {e.detail}</span>}
+                    </span>
+                    <span className="muted small nowrap">{formatDateTime(e.at)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="muted small">WhatsApp is a trademark of its owner.</p>
           </section>
         )}
 

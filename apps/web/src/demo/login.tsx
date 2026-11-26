@@ -1,9 +1,12 @@
 // DEMO-06: the demo login page, with the demo accounts and a one-click "Log in as".
+// Layout: one framed split, the Skyline artwork on the left and the amber login card over it.
 import type { SessionUser } from '@crm/shared';
 import { useState, type FormEvent } from 'react';
 import { useDemo } from './context.tsx';
 import { DEMO_COMPANY, DEMO_PASSWORD } from './seed.ts';
-import { Avatar, errorText, Modal, RoleBadge, Tag } from './ui.tsx';
+import { Icon } from './icons.tsx';
+import { LoginArt } from './login-art.tsx';
+import { Avatar, errorText, Modal, ROLE_LABELS, Tag } from './ui.tsx';
 
 export function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void }) {
   const { api } = useDemo();
@@ -13,6 +16,8 @@ export function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void })
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetDone, setResetDone] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   async function attempt(e: string, p: string): Promise<void> {
     setBusy(true);
@@ -33,92 +38,118 @@ export function LoginPage({ onLogin }: { onLogin: (user: SessionUser) => void })
 
   return (
     <div className="login-page">
-      <section className="login-card">
-        <div className="brand-mark" aria-hidden="true">
-          SR
-        </div>
-        <h1>{DEMO_COMPANY} CRM</h1>
-        <p className="muted">
-          One WhatsApp number, one shared inbox. <Tag>Demo · simulated</Tag>
-        </p>
-        <form onSubmit={submit} className="form">
-          <label>
-            Email
-            <input
-              type="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-          {error && (
-            <p className="error-note" role="alert">
-              {error}
-            </p>
-          )}
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? 'Logging in…' : 'Log in'}
-          </button>
-        </form>
-      </section>
+      <div className="login-frame">
+        <LoginArt />
+        <section className="login-card" aria-labelledby="login-title">
+          <div className="login-brand">
+            <span className="brand-mark small" aria-hidden="true">
+              SR
+            </span>
+            <span>{DEMO_COMPANY} CRM</span>
+            <Tag>Demo · simulated</Tag>
+          </div>
+          <h1 id="login-title">Log in to continue</h1>
+          <p className="login-lede">One WhatsApp number, one shared inbox for the whole team.</p>
 
-      <section className="accounts-card" aria-label="Demo accounts">
-        <h2>Demo accounts</h2>
-        <p className="muted">
-          Every account uses the password <code>{DEMO_PASSWORD}</code>. Open a second window to be
-          two people at once.
-        </p>
-        <ul className="accounts">
-          {api.demoAccounts().map((account) => (
-            <li key={account.email} className={account.active ? '' : 'inactive'}>
-              <Avatar name={account.name} />
-              <div className="account-who">
-                <strong>{account.name}</strong>
-                <span className="muted">{account.email}</span>
-              </div>
-              <RoleBadge role={account.role} />
-              {account.active ? (
+          <form onSubmit={submit} className="login-form">
+            <label className="login-field">
+              <span>Email</span>
+              <span className="login-pill">
+                <Icon name="mail" size={18} />
+                <input
+                  type="email"
+                  autoComplete="username"
+                  placeholder="name@skyline.test"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </span>
+            </label>
+            <label className="login-field">
+              <span>Password</span>
+              <span className="login-pill">
+                <Icon name="lock" size={18} />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Your password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
                 <button
                   type="button"
-                  className="btn btn-small"
-                  disabled={busy}
-                  onClick={() => void attempt(account.email, DEMO_PASSWORD)}
+                  className="login-eye"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((shown) => !shown)}
                 >
-                  Log in as
+                  <Icon name={showPassword ? 'eyeOff' : 'eye'} size={18} />
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-small"
-                  disabled={busy}
-                  title="Deactivated users cannot log in"
-                  onClick={() => void attempt(account.email, DEMO_PASSWORD)}
-                >
-                  Try (deactivated)
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-        <p className="muted small">
-          Data is kept in this browser.{' '}
-          <button type="button" className="btn-link" onClick={() => setConfirmReset(true)}>
-            Reset demo data
-          </button>
-          {resetDone && ' · Done: the original data is back.'}
-        </p>
-      </section>
+              </span>
+            </label>
+            <div className="login-row">
+              <button
+                type="button"
+                className="login-text-btn"
+                aria-expanded={showHint}
+                onClick={() => setShowHint((shown) => !shown)}
+              >
+                Forgot password?
+              </button>
+            </div>
+            {showHint && (
+              <p className="login-hint">
+                Every demo account uses the password <code>{DEMO_PASSWORD}</code>.
+              </p>
+            )}
+            {error && (
+              <p className="error-note" role="alert">
+                {error}
+              </p>
+            )}
+            <button type="submit" className="login-submit" disabled={busy}>
+              {busy ? 'Logging in…' : 'Log in'}
+            </button>
+          </form>
+
+          <section className="login-accounts" aria-labelledby="login-accounts-title">
+            <h2 id="login-accounts-title">or log in as a demo user</h2>
+            <ul>
+              {api.demoAccounts().map((account) => (
+                <li key={account.email}>
+                  <button
+                    type="button"
+                    className={account.active ? 'login-account' : 'login-account inactive'}
+                    disabled={busy}
+                    title={
+                      account.active
+                        ? `Log in as ${account.name}`
+                        : 'Deactivated users cannot log in'
+                    }
+                    onClick={() => void attempt(account.email, DEMO_PASSWORD)}
+                  >
+                    <Avatar name={account.name} size="sm" />
+                    <span className="login-account-who">
+                      <strong>{account.name}</strong>
+                      <span>{account.active ? ROLE_LABELS[account.role] : 'Deactivated'}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <p className="login-foot">
+            Data is kept in this browser. Open a second window to be two people at once.{' '}
+            <button type="button" className="login-text-btn" onClick={() => setConfirmReset(true)}>
+              Reset demo data
+            </button>
+            {resetDone && ' · Done: the original data is back.'}
+          </p>
+        </section>
+      </div>
       {confirmReset && (
         <Modal
           title="Reset demo data?"

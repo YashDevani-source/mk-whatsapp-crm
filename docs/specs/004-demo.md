@@ -1,6 +1,6 @@
 Status: approved
 
-Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: all 5 phases built. DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20 and DEMO-22 to DEMO-31 have passing tests. The manual DEMO-02, DEMO-14, DEMO-21, DEMO-32 and DEMO-34 were checked in headless Chrome (see Manual check results). DEMO-33, the walk-through in a real browser, waits for the user.
+Approved 2026-11-26 (session 9): the user's "approved" accepted the draft with the recommended answer to each open point (Decision 13). Build: all 5 phases built. DEMO-01, DEMO-03 to DEMO-13, DEMO-15 to DEMO-20 and DEMO-22 to DEMO-31 have passing tests. The manual DEMO-02, DEMO-14, DEMO-21, DEMO-32 and DEMO-34 were checked in headless Chrome (see Manual check results). DEMO-33, the walk-through in a real browser, waits for the user. Phase 6 (DEMO-35, DEMO-36: dashboard charts and a dark theme) was added on 2026-11-26 at the user's request.
 
 Drafted 2026-11-26 (session 9) after the user changed the flow: "complete this project with dummy data and dummy api responses with dummy logins and dummy qrs for prototype". The user chose (Decision 1): a mock mode inside the web app, a light spec with smoke tests, react-router with plain CSS, and live activity by buttons plus a gentle auto mode.
 
@@ -92,7 +92,7 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 | DEMO-27 | Progress sends one message every ~2 s (simulated), with Pause and Resume; the counts (sent, skipped, failed) and the recipient table update live. Campaign actions write audit rows. | Must | Unit |
 | DEMO-28 | Opt-out list: add and remove numbers; a customer message "STOP" adds the number automatically. | Should | Unit |
 | DEMO-29 | Users (Super Admin, Manager): table, add user, change role, deactivate with "History is kept". A Manager cannot create, promote to or change a Super Admin. A deactivated user's chats and leads become unassigned; their past messages keep their name. | Must | Unit |
-| DEMO-30 | Dashboard and reports: number cards (open chats, unassigned, new leads, overdue follow-ups, converted this month) and a per-employee table (chats, replies, leads by stage, follow-ups done), with date-range and employee filters, and "Export CSV" downloading exactly the rows shown. Tables, no charts. | Must | Unit (CSV) + manual |
+| DEMO-30 | Dashboard and reports: number cards (open chats, unassigned, new leads, overdue follow-ups, converted this month) and a per-employee table (chats, replies, leads by stage, follow-ups done), with date-range and employee filters, and "Export CSV" downloading exactly the rows shown. Reports are tables; the dashboard's charts are DEMO-35 (Decision 36). | Must | Unit (CSV) + manual |
 | DEMO-31 | Audit log (Super Admin, Manager): read-only table, newest first, filters by actor, action and date. There is no edit or delete. | Must | Unit |
 | DEMO-32 | Employee home: my unread chats, my follow-ups today and overdue, my leads by stage. | Must | Manual |
 
@@ -102,6 +102,13 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 | --- | --- | --- | --- |
 | DEMO-33 | Manual walk-through in the browser of the 7-step final demo (`docs/plan/project-summary.md`) as Super Admin, Manager and Employee in two windows, including every state listed under "States to cover" in design prompt Part E. | Must | Manual |
 | DEMO-34 | `pnpm --filter @crm/web build:demo` produces a static site that runs with `preview:demo` and from a plain static server (deep links work). | Should | Manual |
+
+**Dashboard charts and dark theme (phase 6, added 2026-11-26)**
+
+| ID | Criterion | Priority | Test level |
+| --- | --- | --- | --- |
+| DEMO-35 | The Super Admin and Manager dashboard shows charts drawn only from the demo data: a greeting with today's date; number cards (open chats with new chats per day for 7 days as a sparkline, unassigned chats, New leads with leads created this month against last month, converted this month against last month); new chats per day for 14 days as bars with each day's count; leads by stage as a donut with a legend; team workload (each active Employee's open and pending chats) as stacked bars; follow-ups as overdue, today, upcoming and done; each campaign's sent, skipped, failed and pending recipients; and tiles linking unassigned chats (with how many wait for a reply) to the inbox and overdue follow-ups to Follow-ups. Every chart has text labels or a legend, so nothing depends on colour alone. | Must | Unit (pure rules) + manual |
+| DEMO-36 | Demo mode uses a dark theme on every screen (shell, sidebar with icons, banner, pages, drawers, dialogs, toasts). Body text, status tags and "Simulated" labels stay readable (WCAG AA contrast), and keyboard focus stays visible. Live mode is unchanged. | Must | Manual |
 
 ## Contracts touched
 
@@ -153,6 +160,8 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 | DEMO-32 | Pass. Priya's home: her unread chats, today's and overdue follow-ups, her leads by stage. |
 | DEMO-34 | Pass. `build:demo` writes `404.html` and `_redirects`. Deep links (`/leads/<id>`, `/campaigns/opt-outs`, `/properties/<id>`) open on `preview:demo` and on a plain static server that serves files and `404.html` only (GitHub Pages behaviour). |
 | DEMO-33 | Waiting for the user. A scripted run of the README walk-through in two tabs (Neha, Priya) passed steps 1 to 4 and 6; steps 5 and 7 were checked in phase 4. |
+| DEMO-35 | Waiting for phase 6's check. |
+| DEMO-36 | Waiting for phase 6's check. |
 
 ## Proposed changes
 
@@ -198,6 +207,9 @@ IDs are `DEMO-NN` and are never reused. "Test level" also states how it is verif
 33. Phase 5: `build:demo` runs `scripts/static-fallback.mjs` after the build, copying `index.html` to `404.html` and writing `_redirects`, so deep links work on GitHub Pages (root domain) and Netlify. The build uses absolute `/assets/` paths; a sub-path host needs `--base`. Publishing is not part of this spec.
 34. Phase 5: polish from a sweep of every page per role at 1280 px and a scripted run of the README walk-through: inputs and long file names no longer widen the lead and property detail columns; the tab title and icon are set for demo mode (the live `index.html` is unchanged); "Reset demo data" is also on the login page; the Demo controls drawer closes after "Send as customer" so the new chat is visible.
 35. Phase 5: a new bus event `conversation.assigned` gives the new assignee a "<name> assigned you a chat" toast (assignment from the inbox, or from a lead's owner). An event from another tab now syncs the store before it is delivered (`DemoBus.onRemote`), so the list updates together with the toast instead of up to a second later.
+36. Phase 6 (2026-11-26, the user's request "redesign the super admin dashboard … take inspiration from this image", then "use graphs and charts and colours in the dashboard"): the dashboard gets charts; DEMO-30's "Tables, no charts" now applies to Reports only. Charts are hand-drawn SVG and CSS (no chart library, no new package). Month comparisons show the difference in counts ("+2 vs last month"), never a percentage, so a zero last month gives no division and no invented trend. Numbers that are current state (open, unassigned, workload) have no history in the demo data, so they get no change chip.
+37. Phase 6: the dark theme is one set of CSS variables in `demo.css` (`:root` tokens), loaded only by the demo entry, so live mode keeps its look. Status colours keep their meaning (green ok, amber warning, red error, blue info, grey for Simulated and Test); chart colours avoid violet. The style follows the user's reference image (dark cards, one highlighted card, coloured headers) and the `design-taste-frontend` skill's rules that fit an app screen (one card style, one radius scale, equal edges, hover lift and press, one entrance, no scroll fades); its website rules (hero, photographs, effects, finish gate) do not apply to a CRM screen and were not used.
+38. Phase 6: the login page (DEMO-06) follows the user's second reference image: one rounded frame with a flat Skyline artwork (waves, towers, chat bubbles; `login-art.tsx`, decorative SVG) on the left and an amber card on the right. The reference's "Remember me" and social sign-up are left out because they would be controls that do nothing; the demo accounts take the social buttons' place as one-click buttons, "Forgot password?" shows the demo password, and the eye button really shows the password. Login logic is unchanged.
 
 ## Build phases
 
@@ -208,6 +220,7 @@ Same routine as before: at the end of each phase run the gate (typecheck, lint, 
 3. Leads, properties (with share and upload), follow-ups (DEMO-23 to DEMO-25).
 4. Campaigns and opt-outs, users, dashboard and reports with CSV, audit log, Employee home (DEMO-26 to DEMO-32).
 5. States and polish, static build, README "Demo mode" section, the manual walk-through with the user (DEMO-33, DEMO-34).
+6. Dashboard charts and dark theme (DEMO-35, DEMO-36), added 2026-11-26 at the user's request.
 
 Timing: the deadline is 2026-11-27. Phases 1 and 2 are the core of the demo; if time runs short, phase 4's Should items and DEMO-34 go first.
 

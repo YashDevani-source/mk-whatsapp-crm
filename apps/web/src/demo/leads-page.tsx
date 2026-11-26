@@ -12,10 +12,10 @@ import { demoCan } from './access.ts';
 import { stageText, stageTone } from './chat-view.ts';
 import { useDemo, useLive, useUser } from './context.tsx';
 import { FollowUpModal, FollowUpRows } from './followups-page.tsx';
-import { formatAgo, formatDateTime, formatPhone, formatPrice } from './format.ts';
+import { countOf, formatAgo, formatDateTime, formatPhone, formatPrice } from './format.ts';
 import { budgetValid, needsSummary } from './rules.ts';
 import { useToast } from './toasts.tsx';
-import { Chip, Empty, errorText, ErrorNote, PageHeader, Skeleton } from './ui.tsx';
+import { Chip, Empty, ErrorNote, errorText, PageHeader, Skeleton, StatStrip } from './ui.tsx';
 
 const STAGES = LeadStage.options;
 
@@ -66,9 +66,11 @@ function LeadList() {
       <PageHeader
         title="Leads"
         subtitle={
-          staff
-            ? 'Every customer enquiry becomes a lead. At most one open lead per customer.'
-            : 'The leads you own.'
+          leads.data
+            ? `${countOf(all.filter((l) => l.stage !== 'converted' && l.stage !== 'lost').length, 'open lead')}${staff ? '' : ' of yours'}, ${all.filter((l) => l.stage === 'new').length} not contacted yet. One open lead per customer.`
+            : staff
+              ? 'Every customer enquiry becomes a lead.'
+              : 'The leads you own.'
         }
         actions={
           <div className="segmented small-seg" role="tablist" aria-label="View">
@@ -88,6 +90,39 @@ function LeadList() {
             </button>
           </div>
         }
+      />
+      <StatStrip
+        label="Leads by stage group"
+        stats={[
+          {
+            key: 'new',
+            label: 'New',
+            value: all.filter((l) => l.stage === 'new').length,
+            hint: 'Not contacted yet',
+            tone: 'blue',
+          },
+          {
+            key: 'progress',
+            label: 'In progress',
+            value: all.filter((l) => !['new', 'converted', 'lost'].includes(l.stage)).length,
+            hint: 'Contacted to negotiation',
+            tone: 'orange',
+          },
+          {
+            key: 'converted',
+            label: 'Converted',
+            value: all.filter((l) => l.stage === 'converted').length,
+            hint: 'Closed as a sale',
+            tone: 'green',
+          },
+          {
+            key: 'lost',
+            label: 'Lost',
+            value: all.filter((l) => l.stage === 'lost').length,
+            hint: 'Closed without a sale',
+            tone: 'red',
+          },
+        ]}
       />
       <div className="filters">
         <input

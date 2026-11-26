@@ -228,6 +228,9 @@ function ChatPanel({ id }: { id: string }) {
   return (
     <section className="chat-panel" aria-label="Conversation">
       <header className="chat-head">
+        <Link to="/inbox" className="chat-back" aria-label="Back to the chat list">
+          ←
+        </Link>
         <Avatar name={c.contact.name ?? '#'} />
         <div className="chat-head-who">
           <strong>{c.contact.name ?? formatPhone(c.contact.phone)}</strong>

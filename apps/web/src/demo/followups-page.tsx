@@ -3,11 +3,23 @@
 import type { FollowUpView } from '@crm/shared';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
+import { BarChart } from './charts.tsx';
 import { useDemo, useLive, useNow } from './context.tsx';
-import { formatDateTime, formatPhone } from './format.ts';
+import { countOf, formatDateTime, formatPhone } from './format.ts';
 import { followUpTab, type FollowUpTab } from './rules.ts';
 import { useToast } from './toasts.tsx';
-import { Chip, Empty, errorText, ErrorNote, Modal, PageHeader, Skeleton, Tag } from './ui.tsx';
+import {
+  Chip,
+  Empty,
+  ErrorNote,
+  errorText,
+  Modal,
+  PageHeader,
+  Skeleton,
+  StatStrip,
+  Tag,
+  type StatTone,
+} from './ui.tsx';
 
 const TABS: readonly [FollowUpTab, string][] = [
   ['overdue', 'Overdue'],
@@ -15,6 +27,20 @@ const TABS: readonly [FollowUpTab, string][] = [
   ['upcoming', 'Upcoming'],
   ['done', 'Done'],
 ];
+
+const TAB_TONES: Readonly<Record<FollowUpTab, StatTone>> = {
+  overdue: 'red',
+  today: 'yellow',
+  upcoming: 'blue',
+  done: 'green',
+};
+
+const TAB_HINTS: Readonly<Record<FollowUpTab, string>> = {
+  overdue: 'Past their time',
+  today: 'Later today',
+  upcoming: 'After today',
+  done: 'Completed',
+};
 
 export function FollowUpsPage() {
   const now = useNow(30_000);
@@ -26,6 +52,17 @@ export function FollowUpsPage() {
     TABS.map(([t]) => [t, all.filter((f) => followUpTab(f, now) === t).length]),
   );
   const shown = all.filter((f) => followUpTab(f, now) === tab);
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    return {
+      key: day.toDateString(),
+      label: day.toLocaleDateString('en-GB', { weekday: 'short' }),
+      title: day.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' }),
+      value: all.filter(
+        (f) => f.doneAt === null && new Date(f.dueAt).toDateString() === day.toDateString(),
+      ).length,
+    };
+  });
   // Done shows the newest first; the others the soonest first.
   if (tab === 'done') shown.reverse();
 
@@ -33,40 +70,56 @@ export function FollowUpsPage() {
     <>
       <PageHeader
         title="Follow-ups"
-        subtitle="Reminders on leads. “Run now (test)” sends the test auto-reply once."
+        subtitle={
+          list.data
+            ? `${countOf(counts.overdue ?? 0, 'follow-up is', 'follow-ups are')} overdue and ${counts.today ?? 0} due later today. “Run now (test)” sends the test auto-reply once.`
+            : 'Reminders on leads.'
+        }
         actions={
           <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
             New follow-up
           </button>
         }
       />
-      <div className="tabs-row" role="tablist" aria-label="Follow-up lists">
-        {TABS.map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={tab === value}
-            className={`tab-btn${tab === value ? ' active' : ''}${value === 'overdue' ? ' tab-overdue' : ''}`}
-            onClick={() => setTab(value)}
-          >
-            {label} <span className="count">{counts[value]}</span>
-          </button>
-        ))}
+      <StatStrip
+        label="Follow-up lists"
+        tabs
+        selected={tab}
+        onSelect={(key) => setTab(key as FollowUpTab)}
+        stats={TABS.map(([value, label]) => ({
+          key: value,
+          label,
+          value: counts[value] ?? 0,
+          hint: TAB_HINTS[value],
+          tone: TAB_TONES[value],
+        }))}
+      />
+      <div className="with-side">
+        <div className="with-side-main">
+          {list.loading && <Skeleton rows={5} />}
+          {list.error !== undefined && <ErrorNote error={list.error} />}
+          {!list.loading && shown.length === 0 && (
+            <Empty
+              title={tab === 'overdue' ? 'Nothing overdue' : 'Nothing here'}
+              hint={
+                tab === 'done'
+                  ? 'Completed follow-ups appear here.'
+                  : 'Create one from a lead or with “New follow-up”.'
+              }
+            />
+          )}
+          {shown.length > 0 && <FollowUpRows rows={shown} showCustomer />}
+        </div>
+        <section className="card with-side-card">
+          <h2>Due in the next 7 days</h2>
+          <p className="muted small">Open follow-ups by day, today first</p>
+          <BarChart
+            label="Open follow-ups due per day for the next 7 days"
+            unit="follow-up"
+            bars={week}
+          />
+        </section>
       </div>
-      {list.loading && <Skeleton rows={5} />}
-      {list.error !== undefined && <ErrorNote error={list.error} />}
-      {!list.loading && shown.length === 0 && (
-        <Empty
-          title={tab === 'overdue' ? 'Nothing overdue' : 'Nothing here'}
-          hint={
-            tab === 'done'
-              ? 'Completed follow-ups appear here.'
-              : 'Create one from a lead or with “New follow-up”.'
-          }
-        />
-      )}
-      {shown.length > 0 && <FollowUpRows rows={shown} showCustomer />}
       {creating && <FollowUpModal onClose={() => setCreating(false)} />}
     </>
   );

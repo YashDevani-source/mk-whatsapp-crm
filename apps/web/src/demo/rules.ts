@@ -94,10 +94,12 @@ export function propertyMessage(project: ProjectView, card: PropertyCard): strin
 export function placeholderImage(label: string, seed: string): string {
   let hash = 0;
   for (const ch of seed) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const hue = hash % 360;
+  // Blues, teals, greens and warm earth tones only; no violet (DEMO-36, Decision 37).
+  const HUES = [205, 190, 170, 150, 125, 40, 25, 15];
+  const hue = HUES[hash % HUES.length] ?? 205;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
 <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-<stop offset="0" stop-color="hsl(${hue},55%,52%)"/><stop offset="1" stop-color="hsl(${(hue + 50) % 360},60%,38%)"/>
+<stop offset="0" stop-color="hsl(${hue},55%,52%)"/><stop offset="1" stop-color="hsl(${hue + 20},60%,36%)"/>
 </linearGradient></defs><rect width="640" height="400" fill="url(#g)"/>
 <path d="M0 300 L160 200 L280 270 L420 150 L640 290 L640 400 L0 400Z" fill="rgba(255,255,255,0.18)"/>
 <text x="32" y="360" font-family="system-ui,sans-serif" font-size="30" font-weight="600" fill="white">${label

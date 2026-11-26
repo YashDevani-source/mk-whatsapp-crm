@@ -8,6 +8,7 @@ import {
   ContactView,
   InboxItem,
   LeadHistoryEntry,
+  LeadStage,
   ProjectView,
   UserView,
 } from '@crm/shared';
@@ -26,7 +27,17 @@ import {
   renderMessage,
   SAMPLE_CSV,
 } from './campaigns.ts';
-import { employeeReportCsv, filterAudit, toCsv } from './reports.ts';
+import {
+  chatsPerDay,
+  dashboardCharts,
+  dashboardNumbers,
+  dayKey,
+  employeeReportCsv,
+  filterAudit,
+  leadsByStage,
+  monthChange,
+  toCsv,
+} from './reports.ts';
 import { followUpTab, needsSummary, propertyCard, uploadProblem } from './rules.ts';
 import { buildSeed, DEMO_PASSWORD, isTestNumber } from './seed.ts';
 import { runDue } from './sim.ts';
@@ -1195,4 +1206,114 @@ describe('demo campaigns, users, reports, audit', () => {
 describe('demo criteria built in phase 5', () => {
   it.todo('DEMO-33 manual browser walk-through of the final demo in three roles');
   it.todo('DEMO-34 static demo build runs with deep links (manual)');
+});
+
+describe('demo dashboard charts and theme (phase 6)', () => {
+  it('DEMO-35 new chats per day: 14 local days, oldest first, today last, a new chat counts today', () => {
+    const data = buildSeed(NOW);
+    const days = chatsPerDay(data, NOW, 14);
+    expect(days).toHaveLength(14);
+    expect(days.at(-1)?.day).toBe(dayKey(NOW));
+    expect(days.map((d) => d.day)).toEqual([...days.map((d) => d.day)].sort());
+    const start = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - 13);
+    expect(days.reduce((n, d) => n + d.count, 0)).toBe(
+      data.conversations.filter((c) => new Date(c.createdAt) >= start).length,
+    );
+    const today = days.at(-1)?.count ?? 0;
+    const first = data.conversations[0];
+    if (!first) throw new Error('seed has no conversations');
+    data.conversations.push({ ...first, id: crypto.randomUUID(), createdAt: NOW.toISOString() });
+    expect(chatsPerDay(data, NOW, 14).at(-1)?.count).toBe(today + 1);
+    // Chats older than the window are not counted.
+    data.conversations.push({
+      ...first,
+      id: crypto.randomUUID(),
+      createdAt: '2020-01-01T00:00:00.000Z',
+    });
+    expect(chatsPerDay(data, NOW, 14).reduce((n, d) => n + d.count, 0)).toBe(
+      days.reduce((n, d) => n + d.count, 0) + 1,
+    );
+  });
+
+  it('DEMO-35 month changes compare this calendar month with the last one, as counts', () => {
+    const data = buildSeed(NOW);
+    const lead = data.leads[0];
+    if (!lead) throw new Error('seed has no leads');
+    const thisMonth = new Date(NOW.getFullYear(), NOW.getMonth(), 2).toISOString();
+    const lastMonth = new Date(NOW.getFullYear(), NOW.getMonth() - 1, 15).toISOString();
+    const older = new Date(NOW.getFullYear(), NOW.getMonth() - 2, 15).toISOString();
+    data.leads = [
+      { ...lead, id: crypto.randomUUID(), createdAt: thisMonth, stage: 'new', closedAt: null },
+      {
+        ...lead,
+        id: crypto.randomUUID(),
+        createdAt: lastMonth,
+        stage: 'converted',
+        closedAt: thisMonth,
+      },
+      {
+        ...lead,
+        id: crypto.randomUUID(),
+        createdAt: older,
+        stage: 'converted',
+        closedAt: lastMonth,
+      },
+      { ...lead, id: crypto.randomUUID(), createdAt: older, stage: 'lost', closedAt: lastMonth },
+      { ...lead, id: crypto.randomUUID(), createdAt: older, stage: 'converted', closedAt: older },
+    ];
+    expect(monthChange(data, NOW)).toEqual({
+      leadsCreated: { thisMonth: 1, lastMonth: 1 },
+      converted: { thisMonth: 1, lastMonth: 1 },
+    });
+  });
+
+  it('DEMO-35 leads by stage, workload, follow-ups, campaigns and waiting chats come from the data', async () => {
+    const data = buildSeed(NOW);
+    const stages = leadsByStage(data);
+    expect(stages.map((s) => s.stage)).toEqual(LeadStage.options);
+    expect(stages.reduce((n, s) => n + s.count, 0)).toBe(data.leads.length);
+
+    const charts = dashboardCharts(data, NOW);
+    expect(charts.chatsPerDay).toHaveLength(14);
+    // Active Employees only; Ananya is deactivated.
+    expect(charts.workload.map((w) => w.employee)).toEqual([
+      'Priya Nair',
+      'Karan Verma',
+      'Sneha Iyer',
+      'Vikram Rao',
+    ]);
+    for (const w of charts.workload) {
+      expect(w.open).toBe(
+        data.conversations.filter((c) => c.assigneeId === w.employeeId && c.status === 'open')
+          .length,
+      );
+      expect(w.pending).toBe(
+        data.conversations.filter((c) => c.assigneeId === w.employeeId && c.status === 'pending')
+          .length,
+      );
+    }
+    const f = charts.followUps;
+    expect(f.overdue + f.today + f.upcoming + f.done).toBe(data.followUps.length);
+    expect(f.overdue).toBe(dashboardNumbers(data, NOW).overdueFollowUps);
+    expect(charts.campaigns.map((c) => [c.name, c.sent, c.skipped, c.failed, c.pending])).toEqual([
+      ['Site-visit weekend at Green Valley', 8, 4, 0, 0],
+      ['Lakeview Towers price update', 5, 0, 1, 0],
+    ]);
+    // Unassigned, not closed, and the customer wrote last.
+    const unassigned = data.conversations.filter(
+      (c) => c.assigneeId === null && c.status !== 'closed',
+    );
+    expect(charts.waitingForReply).toBeGreaterThan(0);
+    expect(charts.waitingForReply).toBeLessThanOrEqual(unassigned.length);
+
+    // The demo api serves the charts to Managers and the Super Admin only.
+    const { api } = harness();
+    await login(api, 'neha');
+    expect((await api.getDashboardCharts()).workload).toHaveLength(4);
+    await login(api, 'priya');
+    expect(await rejection(api.getDashboardCharts())).toBe('forbidden');
+  });
+
+  it.todo('DEMO-35 dashboard charts in the browser: labels, legends, hover values (manual)');
+  it.todo('DEMO-36 dark theme on every screen, readable and with visible focus (manual)');
 });

@@ -1,6 +1,6 @@
 // DEMO-26 to DEMO-28: campaigns (list, 5-step wizard, live progress) and the opt-out list.
 // Safe by default: test numbers only, opt-outs always skipped, preview and confirm, slow sending.
-import type { CampaignRecipient, CampaignStatus } from '@crm/shared';
+import type { CampaignRecipient, CampaignStatus, CampaignView } from '@crm/shared';
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import {
@@ -14,9 +14,19 @@ import {
   type CsvRow,
 } from './campaigns.ts';
 import { useDemo, useLive } from './context.tsx';
-import { formatDateTime, formatPhone } from './format.ts';
+import { countOf, formatDateTime, formatPhone } from './format.ts';
 import { useToast } from './toasts.tsx';
-import { Chip, Empty, errorText, ErrorNote, PageHeader, Skeleton, Tag, type Tone } from './ui.tsx';
+import {
+  Chip,
+  Empty,
+  ErrorNote,
+  errorText,
+  PageHeader,
+  Skeleton,
+  StatStrip,
+  Tag,
+  type Tone,
+} from './ui.tsx';
 
 const STATUS_TONE: Record<CampaignStatus, Tone> = {
   draft: 'neutral',
@@ -40,6 +50,9 @@ export function CampaignsPage() {
   return <CampaignList />;
 }
 
+const total = (list: CampaignView[], status: 'sent' | 'skipped' | 'failed'): number =>
+  list.reduce((n, c) => n + c.recipients.filter((r) => r.status === status).length, 0);
+
 function CampaignList() {
   const campaigns = useLive((a) => a.listCampaigns(), 'campaigns');
   const navigate = useNavigate();
@@ -49,7 +62,10 @@ function CampaignList() {
         title="Campaigns"
         subtitle={
           <>
-            Messages to a list of opted-in test contacts, sent slowly. <Tag>Simulated</Tag>
+            {campaigns.data
+              ? `${countOf(total(campaigns.data, 'sent'), 'message')} sent so far, one every 2 seconds, to opted-in test numbers only. `
+              : 'Messages to opted-in test numbers, sent slowly. '}
+            <Tag>Simulated</Tag>
           </>
         }
         actions={
@@ -63,6 +79,41 @@ function CampaignList() {
           </>
         }
       />
+      {campaigns.data && (
+        <StatStrip
+          label="Campaign totals"
+          stats={[
+            {
+              key: 'all',
+              label: 'Campaigns',
+              value: campaigns.data.length,
+              hint: `${campaigns.data.filter((c) => c.status === 'running' || c.status === 'paused').length} running or paused`,
+              tone: 'neutral',
+            },
+            {
+              key: 'sent',
+              label: 'Messages sent',
+              value: total(campaigns.data, 'sent'),
+              hint: 'Simulated sends',
+              tone: 'green',
+            },
+            {
+              key: 'skipped',
+              label: 'Skipped',
+              value: total(campaigns.data, 'skipped'),
+              hint: 'Each with a reason',
+              tone: 'yellow',
+            },
+            {
+              key: 'failed',
+              label: 'Failed',
+              value: total(campaigns.data, 'failed'),
+              hint: 'Not delivered',
+              tone: 'red',
+            },
+          ]}
+        />
+      )}
       {campaigns.loading && <Skeleton rows={3} />}
       {campaigns.error !== undefined && <ErrorNote error={campaigns.error} />}
       {campaigns.data?.length === 0 && (

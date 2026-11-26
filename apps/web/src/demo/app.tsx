@@ -17,13 +17,15 @@ import { canOpen, landingPath, navFor, pageForPath, PAGES, type PageKey } from '
 import { UserProvider, useDemo, useLive, useUser } from './context.tsx';
 import { CampaignsPage } from './campaigns-page.tsx';
 import { DemoControls } from './controls.tsx';
+import { DashboardPage } from './dashboard-page.tsx';
 import { formatPhone } from './format.ts';
 import { FollowUpsPage } from './followups-page.tsx';
+import { Icon, WhatsAppLogo } from './icons.tsx';
 import { InboxPage } from './inbox-page.tsx';
 import { LeadsPage } from './leads-page.tsx';
 import { LoginPage } from './login.tsx';
 import { PropertiesPage } from './properties-page.tsx';
-import { AuditPage, DashboardPage, HomePage, ReportsPage } from './reports-page.tsx';
+import { AuditPage, HomePage, ReportsPage } from './reports-page.tsx';
 import { DEMO_COMPANY } from './seed.ts';
 import { ToastHost } from './toasts.tsx';
 import { Avatar, Empty, NoAccess, RoleBadge, Skeleton, Tag } from './ui.tsx';
@@ -136,7 +138,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <span className="brand-mark small" aria-hidden="true">
             SR
           </span>
-          <span>
+          <span className="nav-label">
             <strong>{DEMO_COMPANY}</strong>
             <span className="brand-sub">CRM</span>
           </span>
@@ -147,8 +149,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
               key={page}
               to={PAGES[page].path}
               className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
+              data-label={PAGES[page].label}
             >
-              {PAGES[page].label}
+              {page === 'whatsapp' ? <WhatsAppLogo /> : <Icon name={page} />}
+              <span className="nav-label">{PAGES[page].label}</span>
               {page === 'inbox' && unread > 0 && (
                 <span className="nav-badge" aria-label={`${unread} chats with unread messages`}>
                   {unread}
@@ -158,10 +162,16 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           ))}
         </nav>
         <div className="sidebar-footer">
-          <button type="button" className="btn btn-demo" onClick={() => setControlsOpen(true)}>
-            Demo controls
+          <button
+            type="button"
+            className="btn btn-demo"
+            onClick={() => setControlsOpen(true)}
+            data-label="Demo controls"
+          >
+            <Icon name="demo" size={18} />
+            <span className="nav-label">Demo controls</span>
           </button>
-          <span className="muted small">Simulate customers, agents and drops.</span>
+          <span className="muted small sidebar-hint">Simulate customers, agents and drops.</span>
         </div>
       </aside>
       <div className="main-col">
@@ -179,7 +189,10 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         <WaBanner />
         <ToastHost>
           <main className={flush ? 'content flush' : 'content'}>
-            <Outlet />
+            {/* One short entrance per page, never on a data refresh (DEMO-36). */}
+            <div className="page-enter" key={pageForPath(location.pathname) ?? 'other'}>
+              <Outlet />
+            </div>
           </main>
           {controlsOpen && <DemoControls onClose={() => setControlsOpen(false)} />}
         </ToastHost>
