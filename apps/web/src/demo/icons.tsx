@@ -4,7 +4,10 @@ import type { PageKey } from './access.ts';
 import whatsappLogo from './assets/whatsapp.svg';
 
 const PATHS: Readonly<
-  Record<PageKey | 'demo' | 'arrow' | 'logout' | 'mail' | 'lock' | 'eye' | 'eyeOff', string>
+  Record<
+    PageKey | 'demo' | 'arrow' | 'logout' | 'mail' | 'lock' | 'eye' | 'eyeOff' | 'sun' | 'moon',
+    string
+  >
 > = {
   dashboard: 'M12 3v9h9M12 3a9 9 0 1 0 9 9M15 3.5A9 9 0 0 1 20.5 9H15z',
   home: 'M3 11.5 12 4l9 7.5M5.5 9.5V20h13V9.5M10 20v-5h4v5',
@@ -25,6 +28,8 @@ const PATHS: Readonly<
   mail: 'M3.5 6h17v12h-17zM3.5 7l8.5 6 8.5-6',
   lock: 'M6 11h12v10H6zM8.5 11V7.5a3.5 3.5 0 0 1 7 0V11',
   eye: 'M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4',
+  moon: 'M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z',
   eyeOff:
     'M3 3l18 18M10.6 6.1A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4M6.6 6.6A17 17 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 4-.9M9.9 9.9a3 3 0 0 0 4.2 4.2',
 };

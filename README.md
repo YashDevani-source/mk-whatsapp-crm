@@ -36,7 +36,9 @@ Each browser tab keeps its own login, so two windows of the same browser can be 
 - **Properties**: cards with filters; detail with gallery, units, brochures, a session-only upload; "Share into chat".
 - **Follow-ups**: Overdue, Today, Upcoming, Done; create, edit, complete; "Run now (test)" sends the test auto-reply once.
 - **Campaigns**: Upload CSV (or the sample file) → Segment → Message → Preview & confirm (every skipped row with its reason) → live simulated sending, one message per ~2 s, with pause and resume. Test numbers only by default; the opt-out list.
-- **Users**: add, change role, deactivate (history kept, logged out at once). **Dashboard**, **Reports** (per employee, CSV export), **Audit log** (read-only), and the Employee **Home**.
+- **Users**: add, change role, deactivate (history kept, logged out at once). **Reports** (charts, per-employee table, CSV export), **Audit log** (read-only).
+- **Dashboard** (Super Admin, Manager) and the Employee **Home**: one three-column layout. A greeting, three pastel cards (New leads, Open chats, Pending follow-ups), Recent conversations, Leads overview and Recent lead activity; a right panel with your profile, the WhatsApp state and a follow-up agenda with a week strip. Employees see only their own work.
+- **Themes**: light by default; the sidebar's "Dark theme" button switches every screen and is remembered in this browser.
 - **Demo controls** (bottom of the sidebar): a customer writes in (new or existing contact, or STOP), another agent replies (holds the lock ~8 s), drop the connection (back in ~8 s), auto activity (a customer writes about every 45 s), reset.
 
 ### Walk-through: the 7-step final demo
@@ -49,7 +51,7 @@ Open two windows: **A** as Neha (Manager), **B** as Priya (Employee).
 4. **Send a brochure.** In B, "Share property" → Green Valley Residency → Send to customer: a property card with the brochure name.
 5. **Run a safe campaign.** In A, Campaigns → New campaign → "Use the sample file" → Segment (all) → Message → Preview: the opted-out number (+1 202 555 0124), the non-test number, the duplicate and the bad number are skipped with reasons. Tick the confirmation → Start; watch it send, pause and resume.
 6. **Disconnect and reconnect WhatsApp.** Demo controls → Drop connection: both banners turn amber and Send is disabled; it reconnects after ~8 s. As Aarav, WhatsApp → Log out WhatsApp → confirm → Simulate scan.
-7. **Show the reports and the audit log.** In A, Reports (Export CSV) and Audit log: every step above is listed.
+7. **Show the reports and the audit log.** In A, Reports (charts, then the table with Export CSV) and Audit log: every step above is listed.
 
 ### Hosting the demo build
 
